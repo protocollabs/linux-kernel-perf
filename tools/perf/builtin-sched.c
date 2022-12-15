@@ -872,6 +872,7 @@ static int replay_switch_event(struct perf_sched *sched,
 
 	add_sched_event_run(sched, prev, timestamp, delta);
 	add_sched_event_sleep(sched, prev, timestamp, prev_state);
+	printf("Time:%ld  PID: %d  Event: switch  Duration:%ld \n",timestamp,sample->pid, delta);
 
 	return 0;
 }
@@ -881,7 +882,6 @@ static int replay_fork_event(struct perf_sched *sched,
 			     struct machine *machine)
 {
 	struct thread *child, *parent;
-
 	child = machine__findnew_thread(machine, event->fork.pid,
 					event->fork.tid);
 	parent = machine__findnew_thread(machine, event->fork.ppid,
