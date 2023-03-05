@@ -46,6 +46,8 @@
 
 #include <linux/ctype.h>
 
+#include <stdio.h>
+
 #define PR_SET_NAME		15               /* Set process name */
 #define MAX_CPUS		4096
 #define COMM_LEN		20
@@ -477,8 +479,8 @@ static struct task_desc *register_pid(struct perf_sched *sched,
 	 * if there's no wakeup pointing to this sleep state:
 	 */
 	add_sched_event_sleep(sched, task, 0, 0);
-
-	sched->pid_to_task[pid] = task;
+	if(strcmp("buffer", comm) != 0)
+		sched->pid_to_task[pid] = task;
 	sched->nr_tasks++;
 	sched->tasks = realloc(sched->tasks, sched->nr_tasks * sizeof(struct task_desc *));
 	BUG_ON(!sched->tasks);
@@ -490,6 +492,50 @@ static struct task_desc *register_pid(struct perf_sched *sched,
 	return task;
 }
 
+static void create_txt(struct perf_sched *sched){
+	struct task_desc *task;
+	unsigned long i,j;
+	struct sched_atom *atom;
+
+	FILE * pFile;
+	pFile = fopen ("Tasks.txt","w");
+
+	for (i = 0; i < sched->nr_tasks; i++) {
+		task = sched->tasks[i];
+		fprintf(pFile,"%s : { pattern : {",task->comm);
+		for (j = 0; j < task->nr_events; j++){
+			atom = task->atoms[j];
+			switch(atom->type){
+				case SCHED_EVENT_RUN:
+					fprintf(pFile, " run %ld",atom->duration);
+					break;
+				case SCHED_EVENT_SLEEP:
+					if(j != task->nr_events-2)
+						if(task->atoms[j+1]->type == SCHED_EVENT_RUN)
+							fprintf(pFile," sleep %ld",
+								task->atoms[j+1]->timestamp-task->atoms[j+1]->duration-atom->timestamp);
+						else
+							fprintf(pFile," sleep %ld",
+								task->atoms[j+1]->timestamp-atom->timestamp);
+					else
+						fprintf(pFile," sleep ");
+					if(task->atoms[j]->wait_sem)
+						fprintf(pFile," sem: on");
+					break;
+				case SCHED_EVENT_MIGRATION:
+					fprintf(pFile," migration ");
+					break;
+				case SCHED_EVENT_WAKEUP:
+					fprintf(pFile," wakeup PID: %ld",task->atoms[j]->wakee->pid);
+					break;
+				default:
+					fprintf(pFile," undefined type ");
+			}
+		}
+		fprintf(pFile,"} }\n");
+	}
+	fclose (pFile);
+}
 
 static void print_task_traces(struct perf_sched *sched)
 {
@@ -522,6 +568,7 @@ static void perf_sched__process_event(struct perf_sched *sched,
 				      struct sched_atom *atom)
 {
 	int ret = 0;
+
 
 	switch (atom->type) {
 		case SCHED_EVENT_RUN:
@@ -735,7 +782,7 @@ static void wait_for_tasks(struct perf_sched *sched)
 					 sched->parent_cpu_usage)/sched->replay_repeat;
 
 	mutex_lock(&sched->start_work_mutex);
-
+	//????
 	for (i = 0; i < sched->nr_tasks; i++) {
 		task = sched->tasks[i];
 		sem_init(&task->sleep_sem, 0, 0);
@@ -872,7 +919,7 @@ static int replay_switch_event(struct perf_sched *sched,
 
 	add_sched_event_run(sched, prev, timestamp, delta);
 	add_sched_event_sleep(sched, prev, timestamp, prev_state);
-	printf("Time:%ld  PID: %d  Event: switch  Duration:%ld \n",timestamp,sample->pid, delta);
+	printf("prev_state: %ld comm: %s \n",prev_state,prev_comm);
 
 	return 0;
 }
@@ -882,6 +929,7 @@ static int replay_fork_event(struct perf_sched *sched,
 			     struct machine *machine)
 {
 	struct thread *child, *parent;
+
 	child = machine__findnew_thread(machine, event->fork.pid,
 					event->fork.tid);
 	parent = machine__findnew_thread(machine, event->fork.ppid,
@@ -3290,13 +3338,88 @@ static int perf_sched__map(struct perf_sched *sched)
 	return 0;
 }
 
+static void delete_task(struct perf_sched *sched, unsigned int position){
+	if(position >sched->nr_tasks)
+		return;
+	for(; position<sched->nr_tasks-1; position++){
+	    sched->tasks[position] = sched->tasks[position + 1];
+		sched->tasks[position]->nr--;
+	}
+	sched->nr_tasks--;
+    sched->tasks = realloc(sched->tasks, sched->nr_tasks * sizeof(struct task_desc *));
+}
+
+
+static void move_task(struct perf_sched *sched, unsigned int task_number, unsigned int destination){
+	struct task_desc __maybe_unused *buffer;
+	char comm[]= "buffer";
+	unsigned int position;
+
+
+	position = task_number-1;
+	buffer = register_pid(sched, 9998, comm);
+	//put task into buffer
+	sched->tasks[sched->nr_tasks-1] = sched->tasks[position];
+	//shift array to the right
+	for(;position>destination;position--){
+		sched->tasks[position] = sched->tasks[position-1];
+		sched->tasks[position]->nr++;
+	}
+	//copy buffer to destination when pos==dest
+	sched->tasks[position] = sched->tasks[sched->nr_tasks-1];
+	sched->tasks[position]->nr = destination;
+	//delete buffer
+	delete_task(sched, sched->nr_tasks);
+}
+
+static void add_task(struct perf_sched *sched, const char *comm, unsigned int destination, int pid){
+
+	struct task_desc *task;
+
+	task = register_pid(sched, pid, comm);
+	add_sched_event_run(sched, task, 0, 5000000000);
+	add_sched_event_sleep(sched, task, 0, 0);
+
+	move_task(sched, sched->nr_tasks,destination);
+}
+
+
+/*
+static void modify_task(struct perf_sched *sched, unsigned int position){
+	//modify events in task.
+
+}
+*/
+
+static void get_changes(void){
+	FILE * fp;
+   	char * line = NULL;
+   	size_t len = 0;
+	ssize_t read;
+
+    fp = fopen("Tasks", "r");
+    if (fp == NULL){
+        printf("Error opening file");
+    	exit(EXIT_FAILURE);
+    }
+    while ((read = getline(&line, &len, fp)) != -1) {
+       	printf("Retrieved line of length %zu:\n", read);
+        printf("%s", line);
+    }
+    fclose(fp);
+    if (line)
+        free(line);
+    exit(EXIT_SUCCESS);
+}
+
+
 static int perf_sched__replay(struct perf_sched *sched)
 {
 	unsigned long i;
+	char comm[] = "Test";
 
 	calibrate_run_measurement_overhead(sched);
 	calibrate_sleep_measurement_overhead(sched);
-
 	test_calibrations(sched);
 
 	if (perf_sched__read_events(sched))
@@ -3314,9 +3437,29 @@ static int perf_sched__replay(struct perf_sched *sched)
 		printf("run atoms optimized: %ld\n",
 			sched->nr_run_events_optimized);
 
-	print_task_traces(sched);
-	add_cross_task_wakeups(sched);
 
+	///
+	get_changes();
+	if(false)
+		create_txt(sched);
+	if(false)
+		add_task(sched,comm,489,9000);
+		//add_task(sched,comm,500,9001);
+		//add_task(sched,comm,501,9002);
+	if(false)
+		move_task(sched,sched->nr_tasks,490);
+	//	move_task(sched,sched->nr_tasks,491);
+	if(false)
+		delete_task(sched,500);
+/*	printf("\n time:%ld \n",sched->tasks[498]->atoms[0]->timestamp);
+	printf("\n time:%ld run: %ld\n",sched->tasks[498]->atoms[1]->timestamp,sched->tasks[498]->atoms[1]->duration);
+	printf("\n addition:%ld \n",sched->tasks[498]->atoms[1]->timestamp+sched->tasks[498]->atoms[1]->duration);
+	printf("\n time:%ld \n",sched->tasks[498]->atoms[2]->timestamp);
+	printf("\n time:%ld \n",sched->tasks[498]->atoms[3]->timestamp);
+	printf("\n time:%ld \n",sched->tasks[498]->atoms[4]->timestamp);
+*/
+	add_cross_task_wakeups(sched);
+	print_task_traces(sched);
 	sched->thread_funcs_exit = false;
 	create_tasks(sched);
 	printf("------------------------------------------------------------\n");
@@ -3328,6 +3471,8 @@ static int perf_sched__replay(struct perf_sched *sched)
 	mutex_unlock(&sched->work_done_wait_mutex);
 	return 0;
 }
+
+
 
 static void setup_sorting(struct perf_sched *sched, const struct option *options,
 			  const char * const usage_msg[])
