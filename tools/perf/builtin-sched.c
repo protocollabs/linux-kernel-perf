@@ -510,7 +510,7 @@ static void create_txt(struct perf_sched *sched){
 					fprintf(pFile, " run %ld",atom->duration);
 					break;
 				case SCHED_EVENT_SLEEP:
-					if(j != task->nr_events-2)
+					if(j != task->nr_events-1)
 						if(task->atoms[j+1]->type == SCHED_EVENT_RUN)
 							fprintf(pFile," sleep %ld",
 								task->atoms[j+1]->timestamp-task->atoms[j+1]->duration-atom->timestamp);
@@ -3396,6 +3396,7 @@ static void get_changes(void){
    	char * line = NULL;
    	size_t len = 0;
 	ssize_t read;
+   	char *token;
 
     fp = fopen("Tasks", "r");
     if (fp == NULL){
@@ -3403,6 +3404,13 @@ static void get_changes(void){
     	exit(EXIT_FAILURE);
     }
     while ((read = getline(&line, &len, fp)) != -1) {
+    	token = strtok(line, " ");
+    	while( token != NULL ) {
+      		if((*token != ':') && (*token != '{') && (*token != '}'))
+      			printf( " %s\n", token );
+      			//
+      		token = strtok(NULL, " ");
+   		}
        	printf("Retrieved line of length %zu:\n", read);
         printf("%s", line);
     }
@@ -3438,8 +3446,10 @@ static int perf_sched__replay(struct perf_sched *sched)
 			sched->nr_run_events_optimized);
 
 
-	///
+
 	get_changes();
+	if(false)
+		get_changes();
 	if(false)
 		create_txt(sched);
 	if(false)
@@ -3458,8 +3468,8 @@ static int perf_sched__replay(struct perf_sched *sched)
 	printf("\n time:%ld \n",sched->tasks[498]->atoms[3]->timestamp);
 	printf("\n time:%ld \n",sched->tasks[498]->atoms[4]->timestamp);
 */
-	add_cross_task_wakeups(sched);
 	print_task_traces(sched);
+	add_cross_task_wakeups(sched);
 	sched->thread_funcs_exit = false;
 	create_tasks(sched);
 	printf("------------------------------------------------------------\n");
