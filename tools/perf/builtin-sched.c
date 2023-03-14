@@ -3384,43 +3384,73 @@ static void add_task(struct perf_sched *sched, const char *comm, unsigned int de
 }
 
 
-/*
-static void modify_task(struct perf_sched *sched, unsigned int position){
-	//modify events in task.
 
+static void add_pattern(struct perf_sched *sched, struct task_desc *task, char * token,
+						int repeat){
+	char *events,*pattern;
+	for(; repeat > 0;repeat--){
+		pattern = strdup(token);
+		events = strtok(pattern, " ");
+		while( events != NULL ) {
+  			//siwtch cases can be sleep, run,
+  			if (!strcmp(events, "sleep")){
+  				add_sched_event_sleep(sched, task, 0, 0);
+  			}
+  			if (!strcmp(events, "run")){
+  				events = strtok(NULL, " ");
+  				add_sched_event_run(sched, task, 0, strtol(events,NULL,10));
+  				//printf("%ld \n", strtol(token,NULL,10));
+  			}
+  		events = strtok(NULL, " ");
+	   	}
+	   	free(pattern);
+	   	//printf("%d\n",repeat);
+	}
 }
-*/
+
+
 
 static void apply_txt(struct perf_sched *sched, FILE * fd){
    	char * line = NULL;
    	size_t len = 0;
-   	char *token;
+   	char *pattern = NULL,*subtoken,*token,*saveptr1, *saveptr2, *saveptr3;
    	const char * comm;
+   	int repeat = 1, pid;
    	struct task_desc *task;
     while ((getline(&line, &len, fd)) != -1) {
-    	comm = strtok(line, " ");
-    	token = strtok(NULL, " ");
-    	task = register_pid(sched, atoi(token), comm);
+    	token = strtok_r(line, "{}", &saveptr1);
+    	comm = strtok_r(token, " ", &saveptr2);
+    	pid = atoi(strtok_r(NULL, " ", &saveptr2));
+    	task = register_pid(sched, pid, comm);
+    	//printf("comm:%s \n pid: %d\n", comm, pid);
+    	//go through all tokens seperated by {
     	while( token != NULL ) {
-      			//siwtch cases can be sleep, run,
-      			if (!strcmp(token, "sleep")){
-      				token = strtok(NULL, " ");
-      				add_sched_event_sleep(sched, task, 0, 0);
-      			}
-      			if (!strcmp(token, "run")){
-      				token = strtok(NULL, " ");
-      				add_sched_event_run(sched, task, 0, strtol(token,NULL,10));
-      				//printf("%ld \n", strtol(token,NULL,10));
-      			}
-
-      		token = strtok(NULL, " ");
+    		//printf("%s\n",token);
+    		subtoken = strtok_r(token, ":; ", &saveptr3);
+    		while(subtoken != NULL){
+	    		if(!strcmp(subtoken, "pattern")){
+					pattern = strtok_r(NULL, "{}", &saveptr1);
+	    			//printf("pattern %s\n", pattern);
+	    		}
+	    		if(!strcmp(subtoken, "repeat")){
+					repeat = atoi(strtok_r(NULL, ":; ", &saveptr3));
+	    		}
+	    	subtoken = strtok_r(NULL, ":; ", &saveptr3);
+	    	//printf("sub: %s\n",subtoken);
+	    	}
+	    	//new token
+    		token = strtok_r(NULL, "{}", &saveptr1);
 
    		}
+   		//new line
+
+   		add_pattern(sched,task,pattern, repeat);
     }
+    
     fclose(fd);
     if (line)
         free(line);
-   //exit(EXIT_SUCCESS);
+   exit(EXIT_SUCCESS);
 }
 
 
