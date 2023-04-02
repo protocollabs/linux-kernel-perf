@@ -47,6 +47,7 @@
 #include <linux/ctype.h>
 
 #include <stdio.h>
+#include <fcntl.h>
 
 #define PR_SET_NAME 15 /* Set process name */
 #define MAX_CPUS 4096
@@ -505,53 +506,61 @@ static struct task_desc *register_pid(struct perf_sched *sched,
 	return task;
 }
 
-static void create_txt(struct perf_sched *sched)
+static void imme_create_txt(struct perf_sched *sched)
 {
 	struct task_desc *task;
 	unsigned long i, j;
 	struct sched_atom *atom;
+	const char* filename = "Tasks.txt";
 
-	FILE *pFile;
-	pFile = fopen("Tasks.txt", "w");
-
-	for (i = 0; i < sched->nr_tasks; i++) {
-		task = sched->tasks[i];
-		fprintf(pFile, "%s: { pattern : {", task->comm);
-		for (j = 0; j < task->nr_events; j++) {
-			atom = task->atoms[j];
-			switch (atom->type) {
-			case SCHED_EVENT_RUN:
-				fprintf(pFile, " run:%ld;", atom->duration);
-				break;
-			case SCHED_EVENT_SLEEP:
-				if (j != task->nr_events - 1)
-					if (task->atoms[j + 1]->type ==
-					    SCHED_EVENT_RUN)
-						fprintf(pFile, " sleep:%ld;",
-							task->atoms[j]
-								->duration);
-					//task->atoms[j+1]->timestamp-task->atoms[j+1]->duration-atom->timestamp);
-					else
-						fprintf(pFile, " sleep:0;");
-				//task->atoms[j+1]->timestamp-atom->timestamp);
-				else
-					fprintf(pFile, " sleep:0;");
-				break;
-			case SCHED_EVENT_MIGRATION:
-				fprintf(pFile, " migration ");
-				break;
-			case SCHED_EVENT_WAKEUP:
-				fprintf(pFile, " wakeup PID: %ld",
-					task->atoms[j]->wakee->pid);
-				break;
-			default:
-				fprintf(pFile, " undefined type ");
-			}
-		}
-		fprintf(pFile, "}");
-		fprintf(pFile, "}\n");
+	int pFile = open(filename, O_RDWR | O_CREAT,S_IRWXO);
+	
+	if( pFile == -1){
+		printf("Could not create Tasks.txt\n");
+		exit(EXIT_FAILURE);
 	}
-	fclose(pFile);
+	
+	for (i = 0; i < sched->nr_tasks; i++) {
+		if(sched->tasks[i]->nr_events>1){
+			task = sched->tasks[i];
+			dprintf(pFile, "%s: { pattern : {", task->comm);
+			for (j = 0; j < task->nr_events; j++) {
+				atom = task->atoms[j];
+				switch (atom->type) {
+				case SCHED_EVENT_RUN:
+					dprintf(pFile, " run:%ld;", atom->duration);
+					break;
+				case SCHED_EVENT_SLEEP:
+					if (j != task->nr_events - 1)
+						if (task->atoms[j + 1]->type ==
+						    SCHED_EVENT_RUN)
+							dprintf(pFile, " sleep:%ld;",
+								task->atoms[j]
+									->duration);
+						//task->atoms[j+1]->timestamp-task->atoms[j+1]->duration-atom->timestamp);
+						else
+							dprintf(pFile, " sleep:0;");
+					//task->atoms[j+1]->timestamp-atom->timestamp);
+					else
+						dprintf(pFile, " sleep:0;");
+					break;
+				case SCHED_EVENT_MIGRATION:
+					dprintf(pFile, " migration ");
+					break;
+				case SCHED_EVENT_WAKEUP:
+					dprintf(pFile, " wakeup PID: %ld",
+						task->atoms[j]->wakee->pid);
+					break;
+				default:
+					dprintf(pFile, " undefined type ");
+				}
+			}
+			dprintf(pFile, "}}\n");
+		}
+	}
+	close(pFile);
+	printf("Tasks.txt file created.\n");
+	exit(EXIT_SUCCESS);
 }
 
 static void print_task_traces(struct perf_sched *sched)
@@ -946,7 +955,6 @@ static int replay_switch_event(struct perf_sched *sched, struct evsel *evsel,
 
 	add_sched_event_run(sched, prev, timestamp, delta);
 	add_sched_event_sleep(sched, prev, timestamp, prev_state);
-	printf("prev_state: %ld comm: %s \n", prev_state, prev_comm);
 
 	return 0;
 }
@@ -3720,7 +3728,7 @@ static int perf_sched__replay(struct perf_sched *sched)
 		if (perf_sched__read_events(sched))
 			return -1;
 		if (sched->intermediate_generate)
-			create_txt(sched);
+			imme_create_txt(sched);
 	}
 	printf("nr_run_events:        %ld\n", sched->nr_run_events);
 	printf("nr_sleep_events:      %ld\n", sched->nr_sleep_events);
@@ -3739,14 +3747,11 @@ static int perf_sched__replay(struct perf_sched *sched)
 	if (false)
 		apply_txt(sched, fd);
 	if (false)
-		create_txt(sched);
+		imme_create_txt(sched);
 	if (false)
 		add_task(sched, comm, 489, 9000);
-	//add_task(sched,comm,500,9001);
-	//add_task(sched,comm,501,9002);
 	if (false)
 		move_task(sched, sched->nr_tasks, 490);
-	//	move_task(sched,sched->nr_tasks,491);
 	if (false)
 		delete_task(sched, 500);
 
@@ -3895,7 +3900,7 @@ int cmd_sched(int argc, const char **argv)
 		.sort_order	      = default_sort_order,
 		.replay_repeat	      = 10,
 		.intermediate_generate = false,
-		.intermediate_use	  = false,
+		.intermediate_use	  = NULL,
 		.profile_cpu	      = -1,
 		.next_shortname1      = 'A',
 		.next_shortname2      = '0',
