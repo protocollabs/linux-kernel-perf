@@ -76,6 +76,8 @@ struct task_desc {
 	sem_t work_done_sem;
 
 	u64 cpu_usage;
+
+	int repeat;
 };
 
 enum sched_event_type {
@@ -456,8 +458,7 @@ static void add_sched_event_sleep(struct perf_sched *sched,
 }
 
 static struct task_desc *register_pid(struct perf_sched *sched,
-				      unsigned long pid, const char *comm,
-				      size_t delay)
+				      unsigned long pid, const char *comm)
 {
 	struct task_desc *task;
 	static int pid_max;
@@ -490,7 +491,7 @@ static struct task_desc *register_pid(struct perf_sched *sched,
 	 * every task starts in sleeping state - this gets ignored
 	 * if there's no wakeup pointing to this sleep state:
 	 */
-	add_sched_event_sleep(sched, task, delay, 0);
+	add_sched_event_sleep(sched, task, 0, 0);
 	if (strcmp("buffer", comm) != 0)
 		sched->pid_to_task[pid] = task;
 	sched->nr_tasks++;
@@ -512,7 +513,6 @@ static void imme_create_txt(struct perf_sched *sched)
 	unsigned long i, j;
 	struct sched_atom *atom;
 	const char* filename = "Tasks.txt";
-
 	int pFile = open(filename, O_RDWR | O_CREAT,S_IRWXO);
 	
 	if( pFile == -1){
@@ -531,25 +531,24 @@ static void imme_create_txt(struct perf_sched *sched)
 					dprintf(pFile, " run:%ld;", atom->duration);
 					break;
 				case SCHED_EVENT_SLEEP:
-					if (j != task->nr_events - 1)
+					if (j != task->nr_events - 1){
 						if (task->atoms[j + 1]->type ==
 						    SCHED_EVENT_RUN)
-							dprintf(pFile, " sleep:%ld;",
-								task->atoms[j]
-									->duration);
-						//task->atoms[j+1]->timestamp-task->atoms[j+1]->duration-atom->timestamp);
+							dprintf(pFile, " sleep:%ld;", 
+								task->atoms[j+1]->timestamp-task->atoms[j+1]->duration-atom->timestamp);
 						else
-							dprintf(pFile, " sleep:0;");
-					//task->atoms[j+1]->timestamp-atom->timestamp);
+							dprintf(pFile, " sleep:%ld;",task->atoms[j+1]->timestamp-atom->timestamp);
+
+						}
 					else
-						dprintf(pFile, " sleep:0;");
+						dprintf(pFile, " sleep:;");
 					break;
 				case SCHED_EVENT_MIGRATION:
-					dprintf(pFile, " migration ");
+					//dprintf(pFile, " migration ");
 					break;
 				case SCHED_EVENT_WAKEUP:
-					dprintf(pFile, " wakeup PID: %ld",
-						task->atoms[j]->wakee->pid);
+					//dprintf(pFile, " wakeup PID: %ld",
+					//	task->atoms[j]->wakee->pid);
 					break;
 				default:
 					dprintf(pFile, " undefined type ");
@@ -704,6 +703,7 @@ static void *thread_func(void *ctx)
 	unsigned long i, ret;
 	char comm2[22];
 	int fd = parms->fd;
+	int repeat = this_task->repeat;
 
 	zfree(&parms);
 
@@ -720,11 +720,16 @@ static void *thread_func(void *ctx)
 
 		cpu_usage_0 = get_cpu_usage_nsec_self(fd);
 
-		for (i = 0; i < this_task->nr_events; i++) {
-			this_task->curr_event = i;
-			perf_sched__process_event(sched, this_task->atoms[i]);
-		}
+		this_task->curr_event = 0;
+		perf_sched__process_event(sched, this_task->atoms[0]);
 
+		while(repeat != 0){
+			for (i = 1; i < this_task->nr_events; i++) {
+				this_task->curr_event = i;
+				perf_sched__process_event(sched, this_task->atoms[i]);
+			}
+			repeat--;
+		}
 		cpu_usage_1 = get_cpu_usage_nsec_self(fd);
 		this_task->cpu_usage = cpu_usage_1 - cpu_usage_0;
 		ret = sem_post(&this_task->work_done_sem);
@@ -907,8 +912,8 @@ static int replay_wakeup_event(struct perf_sched *sched, struct evsel *evsel,
 		printf(" ... pid %d woke up %s/%d\n", sample->tid, comm, pid);
 	}
 
-	waker = register_pid(sched, sample->tid, "<unknown>", 0);
-	wakee = register_pid(sched, pid, comm, 0);
+	waker = register_pid(sched, sample->tid, "<unknown>");
+	wakee = register_pid(sched, pid, comm);
 
 	add_sched_event_wakeup(sched, waker, sample->time, wakee);
 	return 0;
@@ -948,8 +953,8 @@ static int replay_switch_event(struct perf_sched *sched, struct evsel *evsel,
 	pr_debug(" ... switch from %s/%d to %s/%d [ran %" PRIu64 " nsecs]\n",
 		 prev_comm, prev_pid, next_comm, next_pid, delta);
 
-	prev = register_pid(sched, prev_pid, prev_comm, 0);
-	next = register_pid(sched, next_pid, next_comm, 0);
+	prev = register_pid(sched, prev_pid, prev_comm);
+	next = register_pid(sched, next_pid, next_comm);
 
 	sched->cpu_last_switched[cpu] = timestamp;
 
@@ -984,8 +989,8 @@ static int replay_fork_event(struct perf_sched *sched, union perf_event *event,
 		       child->tid);
 	}
 
-	register_pid(sched, parent->tid, thread__comm_str(parent), 0);
-	register_pid(sched, child->tid, thread__comm_str(child), 0);
+	register_pid(sched, parent->tid, thread__comm_str(parent));
+	register_pid(sched, child->tid, thread__comm_str(child));
 out_put:
 	thread__put(child);
 	thread__put(parent);
@@ -1382,7 +1387,7 @@ static int latency_migrate_task_event(struct perf_sched *sched,
 	if (!atoms) {
 		if (thread_atoms_insert(sched, migrant))
 			goto out_put;
-		register_pid(sched, migrant->tid, thread__comm_str(migrant), 0);
+		register_pid(sched, migrant->tid, thread__comm_str(migrant));
 		atoms = thread_atoms_search(&sched->atom_root, migrant,
 					    &sched->cmp_pid);
 		if (!atoms) {
@@ -3452,7 +3457,7 @@ static void move_task(struct perf_sched *sched, unsigned int task_number,
 	unsigned int position;
 
 	position = task_number - 1;
-	buffer = register_pid(sched, 9998, comm, 0);
+	buffer = register_pid(sched, 9998, comm);
 	//put task into buffer
 	sched->tasks[sched->nr_tasks - 1] = sched->tasks[position];
 	//shift array to the right
@@ -3472,7 +3477,7 @@ static void add_task(struct perf_sched *sched, const char *comm,
 {
 	struct task_desc *task;
 
-	task = register_pid(sched, pid, comm, 0);
+	task = register_pid(sched, pid, comm);
 	add_sched_event_run(sched, task, 0, 5000000000);
 	add_sched_event_sleep(sched, task, 0, 0);
 
@@ -3535,52 +3540,49 @@ static char *right_brackets_check(char *token)
 }
 
 static void add_pattern(struct perf_sched *sched, struct task_desc *task,
-			char *token, int repeat, size_t nline)
+			char *token, size_t nline)
 {
 	char *event_def, *pattern, *event, *durationtok;
 	char *ptr1, *ptr2;
 	long int duration;
 
-	while (repeat > 0) {
-		pattern = strdup(token);
-		event_def = strtok_r(pattern, ";", &ptr1);
-		while (event_def != NULL) {
-			durationtok = NULL;
-			//get event
-			event = strtok_r(event_def, ":", &ptr2);
-			//switch cases
-			if (!strcmp(event, "sleep")) {
-				durationtok = strtok_r(NULL, ":", &ptr2);
-				if (durationtok == NULL) {
-					printf("Sleep in pattern has no duration. Check line: %ld.\n",
-					       nline);
-					exit(EXIT_FAILURE);
-				} else {
-					duration =
-						strtol(durationtok, NULL, 10);
-				}
-				add_sched_event_sleep(sched, task, 0, 0);
-				task->atoms[task->nr_events - 1]->duration =
-					duration;
+	pattern = strdup(token);
+	event_def = strtok_r(pattern, ";", &ptr1);
+	while (event_def != NULL) {
+		durationtok = NULL;
+		//get event
+		event = strtok_r(event_def, ":", &ptr2);
+		//switch cases
+		if (!strcmp(event, "sleep")) {
+			durationtok = strtok_r(NULL, ":", &ptr2);
+			if (durationtok == NULL) {
+				printf("Sleep in pattern has no duration. Check line: %ld.\n",
+				       nline);
+				exit(EXIT_FAILURE);
+			} else {
+				duration =
+					strtol(durationtok, NULL, 10);
 			}
-			if (!strcmp(event, "run")) {
-				durationtok = strtok_r(NULL, ":", &ptr2);
-				if (durationtok == NULL) {
-					printf("Run in pattern has no duration. Check line: %ld.\n",
-					       nline);
-					exit(EXIT_FAILURE);
-				} else {
-					duration =
-						strtol(durationtok, NULL, 10);
-				}
-				add_sched_event_run(sched, task, 0, duration);
-			}
-			//new event definiton
-			event_def = strtok_r(NULL, ";", &ptr1);
+			add_sched_event_sleep(sched, task, 0, 0);
+			task->atoms[task->nr_events - 1]->duration =
+				duration;
 		}
-		free(pattern);
-		repeat--;
+		if (!strcmp(event, "run")) {
+			durationtok = strtok_r(NULL, ":", &ptr2);
+			if (durationtok == NULL) {
+				printf("Run in pattern has no duration. Check line: %ld.\n",
+				       nline);
+				exit(EXIT_FAILURE);
+			} else {
+				duration =
+					strtol(durationtok, NULL, 10);
+			}
+			add_sched_event_run(sched, task, 0, duration);
+		}
+		//new event definiton
+		event_def = strtok_r(NULL, ";", &ptr1);
 	}
+	free(pattern);
 }
 
 static char *get_pattern(void)
@@ -3656,7 +3658,8 @@ static size_t check_input(char *input, const char *arg, size_t nline)
 	return value;
 }
 
-static void apply_txt(struct perf_sched *sched, FILE *fd)
+
+static void imme_apply_txt(struct perf_sched *sched, FILE *fd)
 {
 	char *line = NULL;
 	size_t len = 0, nline = 0, delay = 0;
@@ -3687,8 +3690,7 @@ static void apply_txt(struct perf_sched *sched, FILE *fd)
 					pattern = get_pattern();
 				} else if (!strcmp(token, "repeat")) {
 					input = strtok(NULL, ";");
-					repeat = check_input(input, "Repeat",
-							     nline);
+					repeat = strtol(input, NULL, 10);
 				} else if (!strcmp(token, "delay")) {
 					input = strtok(NULL, ";");
 					delay = check_input(input, "Delay",
@@ -3701,8 +3703,11 @@ static void apply_txt(struct perf_sched *sched, FILE *fd)
 				//new token
 				token = strtok(NULL, ":");
 			}
-			task = register_pid(sched, nline, comm, delay);
-			add_pattern(sched, task, pattern, repeat, nline);
+			task = register_pid(sched, nline, comm);
+			if(delay)
+				task->atoms[0]->duration = delay;
+			task->repeat = repeat;
+			add_pattern(sched, task, pattern, nline);
 			//new line
 		}
 	}
@@ -3723,7 +3728,7 @@ static int perf_sched__replay(struct perf_sched *sched)
 
 	if (sched->intermediate_use) {
 		fd = fopen(sched->intermediate_use, "r");
-		apply_txt(sched, fd);
+		imme_apply_txt(sched, fd);
 	} else {
 		if (perf_sched__read_events(sched))
 			return -1;
@@ -3745,7 +3750,7 @@ static int perf_sched__replay(struct perf_sched *sched)
 		       sched->nr_run_events_optimized);
 
 	if (false)
-		apply_txt(sched, fd);
+		imme_apply_txt(sched, fd);
 	if (false)
 		imme_create_txt(sched);
 	if (false)
