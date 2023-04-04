@@ -255,6 +255,7 @@ struct perf_sched {
 	struct perf_time_interval hist_time;
 	volatile bool thread_funcs_exit;
 	//options for intermediate file
+	bool sleep_0;
 	bool intermediate_generate;
 	const char *intermediate_use;
 };
@@ -507,19 +508,36 @@ static struct task_desc *register_pid(struct perf_sched *sched,
 	return task;
 }
 
+static void imme_sleep_calc(struct task_desc *task, int pFile, unsigned long j,struct sched_atom *atom)
+{
+	if(j == 0){
+		dprintf(pFile, " sleep:0;");
+	}
+	else if (j != task->nr_events - 1){
+		if (task->atoms[j + 1]->type ==
+		    SCHED_EVENT_RUN)
+			dprintf(pFile, " sleep:%ld;", 
+				task->atoms[j+1]->timestamp-task->atoms[j+1]->duration-atom->timestamp);
+		else
+			dprintf(pFile, " sleep:%ld;",task->atoms[j+1]->timestamp-atom->timestamp);
+		}
+	else
+		dprintf(pFile, " sleep:0;");
+}
+
 static void imme_create_txt(struct perf_sched *sched)
 {
 	struct task_desc *task;
 	unsigned long i, j;
 	struct sched_atom *atom;
 	const char* filename = "Tasks.txt";
-	int pFile = open(filename, O_RDWR | O_CREAT,S_IRWXO);
+	int pFile = open(filename, O_RDWR | O_CREAT | O_TRUNC ,S_IRWXO);
 	
 	if( pFile == -1){
 		printf("Could not create Tasks.txt\n");
 		exit(EXIT_FAILURE);
 	}
-	
+
 	for (i = 0; i < sched->nr_tasks; i++) {
 		if(sched->tasks[i]->nr_events>1){
 			task = sched->tasks[i];
@@ -531,17 +549,10 @@ static void imme_create_txt(struct perf_sched *sched)
 					dprintf(pFile, " run:%ld;", atom->duration);
 					break;
 				case SCHED_EVENT_SLEEP:
-					if (j != task->nr_events - 1){
-						if (task->atoms[j + 1]->type ==
-						    SCHED_EVENT_RUN)
-							dprintf(pFile, " sleep:%ld;", 
-								task->atoms[j+1]->timestamp-task->atoms[j+1]->duration-atom->timestamp);
-						else
-							dprintf(pFile, " sleep:%ld;",task->atoms[j+1]->timestamp-atom->timestamp);
-
-						}
+					if(sched->sleep_0)
+						dprintf(pFile, " sleep:0;");
 					else
-						dprintf(pFile, " sleep:;");
+						imme_sleep_calc(task,pFile,j,atom);
 					break;
 				case SCHED_EVENT_MIGRATION:
 					//dprintf(pFile, " migration ");
@@ -722,13 +733,20 @@ static void *thread_func(void *ctx)
 
 		this_task->curr_event = 0;
 		perf_sched__process_event(sched, this_task->atoms[0]);
-
-		while(repeat != 0){
+		if(!repeat){
 			for (i = 1; i < this_task->nr_events; i++) {
 				this_task->curr_event = i;
 				perf_sched__process_event(sched, this_task->atoms[i]);
 			}
-			repeat--;
+		}
+		else {
+			while(repeat != 0){
+				for (i = 1; i < this_task->nr_events; i++) {
+					this_task->curr_event = i;
+					perf_sched__process_event(sched, this_task->atoms[i]);
+				}
+				repeat--;
+			}
 		}
 		cpu_usage_1 = get_cpu_usage_nsec_self(fd);
 		this_task->cpu_usage = cpu_usage_1 - cpu_usage_0;
@@ -822,7 +840,6 @@ static void wait_for_tasks(struct perf_sched *sched)
 		sched->replay_repeat;
 
 	mutex_lock(&sched->start_work_mutex);
-	//????
 	for (i = 0; i < sched->nr_tasks; i++) {
 		task = sched->tasks[i];
 		sem_init(&task->sleep_sem, 0, 0);
@@ -3612,7 +3629,7 @@ static void syntax_check(char *line, __maybe_unused size_t nline)
 		line++;
 	}
 	if (count != 0) {
-		printf("Uneven number of brackets.\n");
+		printf("Uneven number of brackets in line %ld.\n",nline);
 		exit(EXIT_FAILURE);
 	}
 }
@@ -3728,7 +3745,11 @@ static int perf_sched__replay(struct perf_sched *sched)
 
 	if (sched->intermediate_use) {
 		fd = fopen(sched->intermediate_use, "r");
-		imme_apply_txt(sched, fd);
+		if(fd==NULL){
+			printf("Could not open '%s'.\n",sched->intermediate_use);
+			exit(EXIT_FAILURE);
+		}
+		imme_apply_txt(sched, fd);		
 	} else {
 		if (perf_sched__read_events(sched))
 			return -1;
@@ -3749,10 +3770,6 @@ static int perf_sched__replay(struct perf_sched *sched)
 		printf("run atoms optimized: %ld\n",
 		       sched->nr_run_events_optimized);
 
-	if (false)
-		imme_apply_txt(sched, fd);
-	if (false)
-		imme_create_txt(sched);
 	if (false)
 		add_task(sched, comm, 489, 9000);
 	if (false)
@@ -3903,7 +3920,8 @@ int cmd_sched(int argc, const char **argv)
 		.cmp_pid	      = LIST_HEAD_INIT(sched.cmp_pid),
 		.sort_list	      = LIST_HEAD_INIT(sched.sort_list),
 		.sort_order	      = default_sort_order,
-		.replay_repeat	      = 10,
+		.replay_repeat	  = 10,
+		.sleep_0	  = true,
 		.intermediate_generate = false,
 		.intermediate_use	  = NULL,
 		.profile_cpu	      = -1,
@@ -3937,6 +3955,9 @@ int cmd_sched(int argc, const char **argv)
 		OPT_UINTEGER(
 			'r', "repeat", &sched.replay_repeat,
 			"repeat the workload replay N times (-1: infinite)"),
+		OPT_BOOLEAN(0, "sleep_0",
+			    &sched.sleep_0,
+			    "print pattern with 0 sleeptime. Behaviour like perf sched replay."),
 		OPT_BOOLEAN('g', "intermediate_generate",
 			    &sched.intermediate_generate,
 			    "generate intermediate file"),
