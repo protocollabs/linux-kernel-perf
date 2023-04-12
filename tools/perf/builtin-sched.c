@@ -78,6 +78,7 @@ struct task_desc {
 	u64 cpu_usage;
 
 	int repeat;
+	int cpu_aff;
 };
 
 enum sched_event_type {
@@ -759,6 +760,20 @@ static void *thread_func(void *ctx)
 	return NULL;
 }
 
+static void set_cpu_affinity(struct task_desc *task)
+{
+	cpu_set_t cpuset;
+	int aff;
+    CPU_ZERO(&cpuset);
+    CPU_SET(task->cpu_aff, &cpuset);
+
+	aff = pthread_setaffinity_np(task->thread, sizeof(cpu_set_t), &cpuset);
+    if (aff != 0){	
+    	printf("Could not set CPU affinity.%d\n",aff);
+        exit(EXIT_FAILURE);
+	}	
+}
+
 static void create_tasks(struct perf_sched *sched)
 	EXCLUSIVE_LOCK_FUNCTION(sched->start_work_mutex)
 		EXCLUSIVE_LOCK_FUNCTION(sched->work_done_wait_mutex)
@@ -786,6 +801,8 @@ static void create_tasks(struct perf_sched *sched)
 		sem_init(&task->work_done_sem, 0, 0);
 		task->curr_event = 0;
 		err = pthread_create(&task->thread, &attr, thread_func, parms);
+		if (task->cpu_aff)
+			set_cpu_affinity(task);
 		BUG_ON(err);
 	}
 }
@@ -3615,6 +3632,12 @@ static void syntax_check(char *line, __maybe_unused size_t nline)
 	int count = 0;
 	char *close_task;
 
+
+	if(strchr(line,':')==line){
+		printf("line %ld starts with ':'. Add comm before ':'.\n",nline);
+		exit(EXIT_FAILURE);
+	}
+
 	close_task = strrchr(line, '}');
 	if (*(close_task + 1) != '\0') {
 		printf("Task definitnion not closed with '}'. %s will be ignored\n",
@@ -3679,11 +3702,12 @@ static size_t check_input(char *input, const char *arg, size_t nline)
 static void imme_apply_txt(struct perf_sched *sched, FILE *fd)
 {
 	char *line = NULL;
-	size_t len = 0, nline = 0, delay = 0;
+	size_t len = 0, nline = 0, delay = 0,count = 1,pid=0;
 	char *token, *input;
-	const char *comm;
+	char *comm,*tmpcomm;
+	char tmp[50];
 	char __maybe_unused *pattern = NULL;
-	int repeat = 1;
+	int repeat = 1,i=1,cpu=-1;
 
 	struct task_desc *task;
 
@@ -3712,7 +3736,19 @@ static void imme_apply_txt(struct perf_sched *sched, FILE *fd)
 					input = strtok(NULL, ";");
 					delay = check_input(input, "Delay",
 							    nline);
-				} else {
+				} else if (!strcmp(token, "count")) {
+					input = strtok(NULL, ";");
+					count = check_input(input, "Count",
+						    nline);
+				} else if (!strcmp(token, "cpu")) {
+					input = strtok(NULL, ";");
+					cpu = check_input(input, "CPU",
+							nline);
+					if(cpu>sched->max_cpu.cpu){
+						printf("CPU affinity not possible because CPU out of range: %d\n",sched->max_cpu.cpu);
+						exit(EXIT_FAILURE);
+					}
+				}else {
 					printf("unkown option:'%s'. Check line: %ld.\n",
 					       token, nline);
 					exit(EXIT_FAILURE);
@@ -3720,13 +3756,28 @@ static void imme_apply_txt(struct perf_sched *sched, FILE *fd)
 				//new token
 				token = strtok(NULL, ":");
 			}
-			task = register_pid(sched, nline, comm);
+			tmpcomm=strdup(comm);
+			while(count>0){
+				if(i>1){
+					sprintf(tmp, "%d",i);
+					strcat(tmpcomm,tmp);
+				}
+			task = register_pid(sched, pid, tmpcomm);
 			if(delay)
 				task->atoms[0]->duration = delay;
+			if(cpu>-1)
+				task->cpu_aff = cpu;
 			task->repeat = repeat;
 			add_pattern(sched, task, pattern, nline);
-			//new line
-		}
+			strcpy(tmpcomm, comm);
+			count--;
+			pid++;
+			i++;
+			}
+
+			
+			
+		}//new line
 	}
 	fclose(fd);
 	if (line)
@@ -3742,7 +3793,6 @@ static int perf_sched__replay(struct perf_sched *sched)
 	calibrate_run_measurement_overhead(sched);
 	calibrate_sleep_measurement_overhead(sched);
 	test_calibrations(sched);
-
 	if (sched->intermediate_use) {
 		fd = fopen(sched->intermediate_use, "r");
 		if(fd==NULL){
