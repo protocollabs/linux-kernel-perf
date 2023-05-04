@@ -509,20 +509,22 @@ static struct task_desc *register_pid(struct perf_sched *sched,
 	return task;
 }
 
-static void imme_sleep_calc(struct task_desc *task, int pFile, unsigned long j,struct sched_atom *atom)
+static void imme_sleep_calc(struct task_desc *task, int pFile, unsigned long j,
+			    struct sched_atom *atom)
 {
-	if(j == 0){
+	if (j == 0) {
 		dprintf(pFile, " sleep:0;");
-	}
-	else if (j != task->nr_events - 1){
-		if (task->atoms[j + 1]->type ==
-		    SCHED_EVENT_RUN)
-			dprintf(pFile, " sleep:%ld;", 
-				task->atoms[j+1]->timestamp-task->atoms[j+1]->duration-atom->timestamp);
+	} else if (j != task->nr_events - 1) {
+		if (task->atoms[j + 1]->type == SCHED_EVENT_RUN)
+			dprintf(pFile, " sleep:%ld;",
+				task->atoms[j + 1]->timestamp -
+					task->atoms[j + 1]->duration -
+					atom->timestamp);
 		else
-			dprintf(pFile, " sleep:%ld;",task->atoms[j+1]->timestamp-atom->timestamp);
-		}
-	else
+			dprintf(pFile, " sleep:%ld;",
+				task->atoms[j + 1]->timestamp -
+					atom->timestamp);
+	} else
 		dprintf(pFile, " sleep:0;");
 }
 
@@ -531,29 +533,31 @@ static void imme_create_txt(struct perf_sched *sched)
 	struct task_desc *task;
 	unsigned long i, j;
 	struct sched_atom *atom;
-	const char* filename = "Tasks.txt";
-	int pFile = open(filename, O_RDWR | O_CREAT | O_TRUNC ,S_IRWXO);
-	
-	if( pFile == -1){
+	const char *filename = "Tasks.txt";
+	int pFile = open(filename, O_RDWR | O_CREAT | O_TRUNC, S_IRWXO);
+
+	if (pFile == -1) {
 		printf("Could not create Tasks.txt\n");
 		exit(EXIT_FAILURE);
 	}
 
 	for (i = 0; i < sched->nr_tasks; i++) {
-		if(sched->tasks[i]->nr_events>1){
+		if (sched->tasks[i]->nr_events > 1) {
 			task = sched->tasks[i];
 			dprintf(pFile, "%s: { pattern : {", task->comm);
 			for (j = 0; j < task->nr_events; j++) {
 				atom = task->atoms[j];
 				switch (atom->type) {
 				case SCHED_EVENT_RUN:
-					dprintf(pFile, " run:%ld;", atom->duration);
+					dprintf(pFile, " run:%ld;",
+						atom->duration);
 					break;
 				case SCHED_EVENT_SLEEP:
-					if(sched->sleep_0)
+					if (sched->sleep_0)
 						dprintf(pFile, " sleep:0;");
 					else
-						imme_sleep_calc(task,pFile,j,atom);
+						imme_sleep_calc(task, pFile, j,
+								atom);
 					break;
 				case SCHED_EVENT_MIGRATION:
 					//dprintf(pFile, " migration ");
@@ -734,17 +738,18 @@ static void *thread_func(void *ctx)
 
 		this_task->curr_event = 0;
 		perf_sched__process_event(sched, this_task->atoms[0]);
-		if(!repeat){
+		if (!repeat) {
 			for (i = 1; i < this_task->nr_events; i++) {
 				this_task->curr_event = i;
-				perf_sched__process_event(sched, this_task->atoms[i]);
+				perf_sched__process_event(sched,
+							  this_task->atoms[i]);
 			}
-		}
-		else {
-			while(repeat != 0){
+		} else {
+			while (repeat != 0) {
 				for (i = 1; i < this_task->nr_events; i++) {
 					this_task->curr_event = i;
-					perf_sched__process_event(sched, this_task->atoms[i]);
+					perf_sched__process_event(
+						sched, this_task->atoms[i]);
 				}
 				repeat--;
 			}
@@ -764,14 +769,14 @@ static void set_cpu_affinity(struct task_desc *task)
 {
 	cpu_set_t cpuset;
 	int aff;
-    CPU_ZERO(&cpuset);
-    CPU_SET(task->cpu_aff, &cpuset);
+	CPU_ZERO(&cpuset);
+	CPU_SET(task->cpu_aff, &cpuset);
 
 	aff = pthread_setaffinity_np(task->thread, sizeof(cpu_set_t), &cpuset);
-    if (aff != 0){	
-    	printf("Could not set CPU affinity.%d\n",aff);
-        exit(EXIT_FAILURE);
-	}	
+	if (aff != 0) {
+		printf("Could not set CPU affinity.%d\n", aff);
+		exit(EXIT_FAILURE);
+	}
 }
 
 static void create_tasks(struct perf_sched *sched)
@@ -3538,12 +3543,12 @@ static void remove_newline(char *s)
 	} while ((*s++ = *d++));
 }
 
-static char *left_brackets_check(char *token)
+static char *left_brackets_check(char *token, size_t nline)
 {
 	char *bracketptr = strchr(token, '{');
 	while (bracketptr != NULL) {
 		if (bracketptr > token) {
-			printf("Check: '%s'. Wrong '{' set.\n", token);
+			printf("Check: '%s'. Line: %ld.\n", token, nline);
 			exit(EXIT_FAILURE);
 		}
 		if (*(bracketptr + 1) != '\0') {
@@ -3555,12 +3560,12 @@ static char *left_brackets_check(char *token)
 	}
 	return token;
 }
-static char *right_brackets_check(char *token)
+static char *right_brackets_check(char *token, size_t nline)
 {
 	char *bracketptr = strchr(token, '}');
 	while (bracketptr != NULL) {
 		if (bracketptr > token) {
-			printf("Check: '%s'. Wrong '}' set.\n", token);
+			printf("Check: '%s'. Line: %ld.\n", token, nline);
 			exit(EXIT_FAILURE);
 		}
 		if (*(bracketptr + 1) != '\0') {
@@ -3594,12 +3599,10 @@ static void add_pattern(struct perf_sched *sched, struct task_desc *task,
 				       nline);
 				exit(EXIT_FAILURE);
 			} else {
-				duration =
-					strtol(durationtok, NULL, 10);
+				duration = strtol(durationtok, NULL, 10);
 			}
 			add_sched_event_sleep(sched, task, 0, 0);
-			task->atoms[task->nr_events - 1]->duration =
-				duration;
+			task->atoms[task->nr_events - 1]->duration = duration;
 		}
 		if (!strcmp(event, "run")) {
 			durationtok = strtok_r(NULL, ":", &ptr2);
@@ -3608,8 +3611,7 @@ static void add_pattern(struct perf_sched *sched, struct task_desc *task,
 				       nline);
 				exit(EXIT_FAILURE);
 			} else {
-				duration =
-					strtol(durationtok, NULL, 10);
+				duration = strtol(durationtok, NULL, 10);
 			}
 			add_sched_event_run(sched, task, 0, duration);
 		}
@@ -3619,11 +3621,11 @@ static void add_pattern(struct perf_sched *sched, struct task_desc *task,
 	free(pattern);
 }
 
-static char *get_pattern(void)
+static char *get_pattern(size_t nline)
 {
 	char *pattern = NULL;
 	pattern = strtok(NULL, "}");
-	pattern = left_brackets_check(pattern);
+	pattern = left_brackets_check(pattern,nline);
 	return pattern;
 }
 
@@ -3632,16 +3634,16 @@ static void syntax_check(char *line, __maybe_unused size_t nline)
 	int count = 0;
 	char *close_task;
 
-
-	if(strchr(line,':')==line){
-		printf("line %ld starts with ':'. Add comm before ':'.\n",nline);
+	if (strchr(line, ':') == line) {
+		printf("line %ld starts with ':'. Add comm before ':'.\n",
+		       nline);
 		exit(EXIT_FAILURE);
 	}
 
 	close_task = strrchr(line, '}');
 	if (*(close_task + 1) != '\0') {
-		printf("Task definitnion not closed with '}'. %s will be ignored\n",
-		       close_task + 1);
+		printf("Task definitnion not closed with '}'. %s in line %ld will be ignored.\n",
+		       close_task + 1,nline);
 		*(close_task + 1) = '\0';
 	}
 	while (*line != '\0') {
@@ -3652,17 +3654,17 @@ static void syntax_check(char *line, __maybe_unused size_t nline)
 		line++;
 	}
 	if (count != 0) {
-		printf("Uneven number of brackets in line %ld.\n",nline);
+		printf("Uneven number of brackets in line %ld.\n", nline);
 		exit(EXIT_FAILURE);
 	}
 }
 
-static char *semicolon_check(char *token)
+static char *semicolon_check(char *token, size_t nline)
 {
 	char *semiptr = strchr(token, ';');
 	while (semiptr != NULL) {
 		if (semiptr > token) {
-			printf("Check: '%s'. Wrong ';' set.\n", token);
+			printf("Check: '%s'. Line: %ld.\n", token, nline);
 			break;
 		}
 		token = semiptr + 1;
@@ -3698,21 +3700,25 @@ static size_t check_input(char *input, const char *arg, size_t nline)
 	return value;
 }
 
-
 static void imme_apply_txt(struct perf_sched *sched, FILE *fd)
 {
 	char *line = NULL;
-	size_t len = 0, nline = 0, delay = 0,count = 1,pid=0;
+	size_t len = 0, nline = 0, delay = 0, count = 1, pid = 0;
 	char *token, *input;
-	char *comm,*tmpcomm;
+	char *comm, *tmpcomm;
 	char tmp[50];
 	char __maybe_unused *pattern = NULL;
-	int repeat = 1,i=1,cpu=-1;
+	int repeat = 1, i = 1, cpu = -1;
 
 	struct task_desc *task;
 
 	while ((getline(&line, &len, fd)) != -1) {
 		nline++;
+		count = 1;
+		cpu = -1;
+		delay = 0;
+		i = 1;
+		repeat = 1;
 		if (!(*line == '\n')) {
 			remove_spaces(line);
 			remove_newline(line);
@@ -3721,14 +3727,14 @@ static void imme_apply_txt(struct perf_sched *sched, FILE *fd)
 			token = strtok(NULL, ":");
 			//go through tokens
 			while (token != NULL) {
-				token = semicolon_check(token);
-				token = left_brackets_check(token);
-				token = right_brackets_check(token);
+				token = semicolon_check(token,nline);
+				token = left_brackets_check(token,nline);
+				token = right_brackets_check(token,nline);
 				//handle token
 				if (!strcmp(token, "}")) {
 					token = strtok(NULL, "}");
 				} else if (!strcmp(token, "pattern")) {
-					pattern = get_pattern();
+					pattern = get_pattern(nline);
 				} else if (!strcmp(token, "repeat")) {
 					input = strtok(NULL, ";");
 					repeat = strtol(input, NULL, 10);
@@ -3739,16 +3745,16 @@ static void imme_apply_txt(struct perf_sched *sched, FILE *fd)
 				} else if (!strcmp(token, "count")) {
 					input = strtok(NULL, ";");
 					count = check_input(input, "Count",
-						    nline);
+							    nline);
 				} else if (!strcmp(token, "cpu")) {
 					input = strtok(NULL, ";");
-					cpu = check_input(input, "CPU",
-							nline);
-					if(cpu>sched->max_cpu.cpu){
-						printf("CPU affinity not possible because CPU out of range: %d\n",sched->max_cpu.cpu);
+					cpu = check_input(input, "CPU", nline);
+					if (cpu > sched->max_cpu.cpu) {
+						printf("CPU affinity not possible because CPU out of range: %d\n",
+						       sched->max_cpu.cpu);
 						exit(EXIT_FAILURE);
 					}
-				}else {
+				} else {
 					printf("unkown option:'%s'. Check line: %ld.\n",
 					       token, nline);
 					exit(EXIT_FAILURE);
@@ -3756,28 +3762,27 @@ static void imme_apply_txt(struct perf_sched *sched, FILE *fd)
 				//new token
 				token = strtok(NULL, ":");
 			}
-			tmpcomm=strdup(comm);
-			while(count>0){
-				if(i>1){
-					sprintf(tmp, "%d",i);
-					strcat(tmpcomm,tmp);
+			tmpcomm = strdup(comm);
+			while (count > 0) {
+				if (i > 1) {
+					sprintf(tmp, "%d", i);
+					strcat(tmpcomm, tmp);
 				}
-			task = register_pid(sched, pid, tmpcomm);
-			if(delay)
-				task->atoms[0]->duration = delay;
-			if(cpu>-1)
-				task->cpu_aff = cpu;
-			task->repeat = repeat;
-			add_pattern(sched, task, pattern, nline);
-			strcpy(tmpcomm, comm);
-			count--;
-			pid++;
-			i++;
+				task = register_pid(sched, pid, tmpcomm);
+				if (delay)
+					task->atoms[0]->duration = delay;
+				if (cpu > -1)
+					task->cpu_aff = cpu;
+				task->repeat = repeat;
+				add_pattern(sched, task, pattern, nline);
+				strcpy(tmpcomm, comm);
+				count--;
+				pid++;
+				i++;
 			}
 
-			
-			
-		}//new line
+		} //new line
+
 	}
 	fclose(fd);
 	if (line)
@@ -3795,11 +3800,12 @@ static int perf_sched__replay(struct perf_sched *sched)
 	test_calibrations(sched);
 	if (sched->intermediate_use) {
 		fd = fopen(sched->intermediate_use, "r");
-		if(fd==NULL){
-			printf("Could not open '%s'.\n",sched->intermediate_use);
+		if (fd == NULL) {
+			printf("Could not open '%s'.\n",
+			       sched->intermediate_use);
 			exit(EXIT_FAILURE);
 		}
-		imme_apply_txt(sched, fd);		
+		imme_apply_txt(sched, fd);
 	} else {
 		if (perf_sched__read_events(sched))
 			return -1;
@@ -4005,9 +4011,9 @@ int cmd_sched(int argc, const char **argv)
 		OPT_UINTEGER(
 			'r', "repeat", &sched.replay_repeat,
 			"repeat the workload replay N times (-1: infinite)"),
-		OPT_BOOLEAN(0, "sleep_0",
-			    &sched.sleep_0,
-			    "print pattern with 0 sleeptime. Behaviour like perf sched replay."),
+		OPT_BOOLEAN(
+			0, "sleep_0", &sched.sleep_0,
+			"print pattern with 0 sleeptime. Behaviour like perf sched replay."),
 		OPT_BOOLEAN('g', "intermediate_generate",
 			    &sched.intermediate_generate,
 			    "generate intermediate file"),
