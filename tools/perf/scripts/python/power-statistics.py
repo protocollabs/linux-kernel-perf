@@ -25,6 +25,7 @@ import types
 import math
 import json
 import re
+import collections
 
 
 sys.path.append(
@@ -294,6 +295,13 @@ def timer__hrtimer_init(event_name, context, common_cpu, common_secs,
     mode_timer.timer__hrtimer_init(time, common_cpu, hrtimer, comm,
                                    common_pid, clockid, mode)
 
+def timer__hrtimer_start(event_name, context, common_cpu,
+	common_secs, common_nsecs, common_pid, common_comm,
+	common_callchain, hrtimer, function, expires, softexpires, 
+	mode, perf_sample_dict):
+    time = time_convert(perf_sample_dict["sample"]["time"])
+    mode = symbol_str("timer__hrtimer_start", "mode", mode)
+    mode_timer.timer__hrtimer_start(time, common_cpu, hrtimer, function, expires, softexpires, mode)
 
 def timer__hrtimer_cancel(event_name, context, common_cpu, common_secs,
         common_nsecs, common_pid, common_comm, common_callchain, hrtimer,
@@ -302,6 +310,17 @@ def timer__hrtimer_cancel(event_name, context, common_cpu, common_secs,
     mode_cluster.timer__hrtimer_cancel(time, common_cpu, hrtimer)
     mode_timer.timer__hrtimer_cancel(time, common_cpu, hrtimer)
 
+def timer__hrtimer_expire_entry(event_name, context, common_cpu,
+	common_secs, common_nsecs, common_pid, common_comm,
+	common_callchain, hrtimer, now, function, perf_sample_dict):
+    time = time_convert(perf_sample_dict["sample"]["time"])
+    mode_timer.timer__hrtimer_expire_entry(time, common_cpu, hrtimer, now, function)
+
+def timer__hrtimer_expire_exit(event_name, context, common_cpu,
+	common_secs, common_nsecs, common_pid, common_comm,
+	common_callchain, hrtimer, perf_sample_dict):
+    time = time_convert(perf_sample_dict["sample"]["time"])
+    mode_timer.timer__hrtimer_expire_exit(time, common_cpu, hrtimer)
 
 def timer__timer_init(event_name, context, common_cpu, common_secs,
         common_nsecs, common_pid, common_comm, common_callchain, timer,
@@ -311,12 +330,33 @@ def timer__timer_init(event_name, context, common_cpu, common_secs,
     mode_timer.timer__timer_init(time, common_cpu, timer, comm, common_pid)
 
 
+def timer__timer_start(event_name, context, common_cpu,
+	common_secs, common_nsecs, common_pid, common_comm,
+	common_callchain, timer, function, expires, now, 
+	flags, perf_sample_dict):
+    time = time_convert(perf_sample_dict["sample"]["time"])
+    flags = flag_str("timer__timer_start", "flags", flags)
+    mode_timer.timer__timer_start(time, common_cpu, timer, function, expires, now, flags)
+
 def timer__timer_cancel(event_name, context, common_cpu, common_secs,
         common_nsecs, common_pid, common_comm, common_callchain, timer,
         perf_sample_dict):
     time = time_convert(perf_sample_dict["sample"]["time"])
     mode_timer.timer__timer_cancel(time, common_cpu, timer)
 
+def timer__timer_expire_entry(event_name, context, common_cpu,
+	common_secs, common_nsecs, common_pid, common_comm,
+	common_callchain, timer, now, function, baseclk, 
+		perf_sample_dict):
+    time = time_convert(perf_sample_dict["sample"]["time"])
+    mode_timer.timer__timer_expire_entry(time, common_cpu, timer, now, function)
+
+
+def timer__timer_expire_exit(event_name, context, common_cpu,
+	common_secs, common_nsecs, common_pid, common_comm,
+	common_callchain, timer, perf_sample_dict):
+    time = time_convert(perf_sample_dict["sample"]["time"])
+    mode_timer.timer__timer_expire_exit(time, common_cpu, timer)
 
 def trace_unhandled(event_name, context, event_fields_dict, perf_sample_dict):
     pass
@@ -326,7 +366,7 @@ def trace_begin():
     global mode_frequency, mode_wakeups_timemap, mode_idle_governor
     args = parse_args()
     args_check_color(args)
-    mode_timer = ModeTimer(args)
+    mode_timer = ModeTimerX(args)
     mode_cluster = ModeCluster(args)
     mode_task = ModeTask(args)
     mode_frequency = ModeFrequency(args)
@@ -637,10 +677,10 @@ class ModeFrequency(object):
         self.frequency_cpu[cpu_id] = state // 1000
 
     def show(self):
-        fmt = csv_sep('{:>20}S{:>3}S{:>15}S{:>11}S{:>11}S{:>16}S{:>11}')
+        fmt = csv_sep('{:>20}S{:>3}S{:>15}S{:>11}S{:>11}S{:>16}S{:>11}') 
         print(fmt.format("Time", "CPU", "Frequency [MHz]", "PID",
                          "TID", "Comm", "Runtime [ms]"))
-        for event in self.journal_iter(cpu=self.args.cpu):
+        for event in self.journal_iter(cpu=self.args.cpu): 
             if not isinstance(event, EventTask):
                 continue
             time_ns = decimal_capped(event.time, unit="ns")
@@ -817,7 +857,6 @@ class ModeCluster(object):
                 idle_prev = event
             else:
                 self.mode_cluster_print_event(event, line_prefix)
-
 
     def info_cpu_event(self, event, prev_db, fmt):
         if isinstance(event, EventIdle):
@@ -1085,6 +1124,300 @@ class ModeTimer(object):
         print("")
         self.info_by_timer()
 
+class ModeTimerX(object):
+
+    event_type = enum.Enum('Events', ['INIT', 'START', 'CANCEL', 'EXPIRE_ENTRY', 'EXPIRE_EXIT'])
+
+    class TimerEvent(object):
+        """ Representation of a timer cancelation or expiration """
+        def __init__(self, time, cpu, event_type):
+            self.time = time
+            self.cpu = cpu
+            self.type = event_type
+
+    types = enum.Enum('Type', ['HRTimer', 'KernelTimer'])
+
+    class Timer(object):
+        """ Representation of one kernel timer """
+
+        def __init__(self, timer_id, timer_type):
+            self.id = timer_id
+            self.type = timer_type
+            self.events = []
+            self.tid = -1
+            self.comm = "unknown"
+
+        def init(self, time, cpu, comm, tid, clockid=None, mode=None):
+            ev = types.SimpleNamespace()
+            ev.type = ModeTimerX.event_type.INIT
+            ev.time = time
+            ev.cpu = cpu
+            ev.comm = comm.replace(" ", "")
+            ev.tid = tid
+            ev.clockid = clockid
+            ev.mode = mode
+            self.events.append(ev)
+
+        def start(self, time, cpu, function, expires, softexpires=None):
+            ev = types.SimpleNamespace()
+            ev.type = ModeTimerX.event_type.START
+            ev.time = time
+            ev.cpu = cpu
+            ev.function = function
+            ev.expires = expires
+            if softexpires == None:
+                softexpires = expires
+            ev.softexpires = softexpires
+            self.events.append(ev)
+
+        def cancel(self, time, cpu):
+            ev = types.SimpleNamespace()
+            ev.type = ModeTimerX.event_type.CANCEL
+            ev.time = time
+            ev.cpu = cpu
+            self.events.append(ev)
+
+        def expire_entry(self, time, cpu, now, function):
+            ev = types.SimpleNamespace()
+            ev.type = ModeTimerX.event_type.EXPIRE_ENTRY
+            ev.time = time
+            ev.cpu = cpu
+            ev.now = now
+            ev.function = function
+            self.events.append(ev)
+
+        def expire_exit(self, time, cpu):
+            ev = types.SimpleNamespace()
+            ev.type = ModeTimerX.event_type.EXPIRE_EXIT
+            ev.time = time
+            ev.cpu = cpu
+            self.events.append(ev)
+
+
+    def __init__(self, args):
+        self.args = args
+        self.timer_db = {}
+        self.timer_db_finished = []
+
+
+    def normalize_data(self):
+        """ merge data from timer_db and timer_db_finished to db.
+        They will probably not fullfilled, so events may be missing.
+        But yeah, this is how data are recorded """
+        self.db = self.timer_db_finished
+        self.db.extend(self.timer_db.values())
+
+
+    def activated(self):
+        return True if self.args.mode in ("all", "timer") else False
+
+
+    def prologue(self, name):
+        if not self.args.file_out:
+            title = section_header(name)
+            print(f"\n\n{title}\n")
+            return sys.stdout
+        fname = name.lower().replace(" ", "-") + ".txt"
+        print(f"write data to {fname}")
+        return open(fname, "w")
+
+
+    def epilogue(self, fd):
+        if not self.args.file_out:
+            return
+        fd.close()
+
+
+    def is_cpu_filtered(self, cpu):
+        if self.args.cpu is not None and cpu != self.args.cpu:
+            return True
+        return False
+
+    def show_expiration_prep_db(self):
+        task_db = {}
+        for timer in self.db:
+            if timer.tid not in task_db:
+                obj = dict()
+                obj["comm"] = timer.comm
+                obj["expires"] = []
+                task_db[timer.tid] = obj
+            obj = task_db[timer.tid]
+            for event in timer.events:
+                if event.type != ModeTimerX.event_type.EXPIRE_ENTRY:
+                    continue
+                obj["expires"].append(event.time)
+        return task_db
+
+    def show_expiration_by_task(self):
+        fd_out = self.prologue("Timer Expires per Task")
+        fmt = "{:>7} {:<16} "
+        task_db = self.show_expiration_prep_db()
+        sorted_task_db = sorted(task_db.keys())
+        tasks = sorted(task_db.items(), key=lambda x: len(x[1]["expires"]), reverse=True)
+        for tid, task in tasks:
+            comm = task["comm"]
+            msg = fmt.format(tid, comm)
+            for time in task["expires"]:
+                msg += f' {time}'
+            print(msg, file=fd_out)
+        self.epilogue(fd_out)
+
+    def show_type_callback_prep(self):
+        data = {
+            ModeTimerX.types.HRTimer     : collections.defaultdict(int),
+            ModeTimerX.types.KernelTimer : collections.defaultdict(int)
+        }
+        for timer in self.db:
+            for event in timer.events:
+                if event.type != ModeTimerX.event_type.EXPIRE_ENTRY:
+                    continue
+                data[timer.type][event.function] += 1
+        return data
+
+    def show_type_callback(self):
+        """ show information for type and callback information.
+        The information recorded at timer_expire_entry is used
+        for both, kernel und hrtimers."""
+        fd_out = self.prologue("Timer Type Callback Expiration")
+        fmt = "{:<14} {:<16} {} "
+        header = fmt.format("TimerType", "Callback", "Expires") 
+        print(header, file=fd_out)
+        data = self.show_type_callback_prep()
+        for timer_type, counters in data.items():
+            counters_sort = sorted(counters.items(), key=lambda item: item[1], reverse=True)
+            for callbackname, expirations in counters_sort:
+                msg = fmt.format(timer_type.name, f'{callbackname:x}', expirations)
+                print(msg, file=fd_out)
+        self.epilogue(fd_out)
+
+
+    def finalize(self):
+        if not self.activated():
+            return
+        self.normalize_data()
+        #self.show_expiration_by_task()
+        self.show_type_callback()
+
+
+    def timer__hrtimer_init(self, time, cpu, timer_id, comm, pid, clockid, mode):
+        if not self.activated():
+            return
+        if self.is_cpu_filtered(cpu):
+            return
+        if timer_id in self.timer_db:
+            # okay, here the timer with the same id is initiailized
+            # again. Just handle this, it is just a new timer
+            self.timer_db_finished.append(self.timer_db[timer_id])
+            del self.timer_db[timer_id]
+        timer = ModeTimerX.Timer(timer_id, ModeTimerX.types.HRTimer)
+        timer.init(time, cpu, comm, pid, clockid=clockid, mode=mode)
+        timer.comm = comm
+        timer.tid = pid
+        self.timer_db[timer_id] = timer
+
+
+    def timer__hrtimer_start(self, time, cpu, timer_id, function, expires, softexpires, mode):
+        if not self.activated():
+            return
+        if self.is_cpu_filtered(cpu):
+            return
+        if timer_id not in self.timer_db:
+            self.timer_db[timer_id] = ModeTimerX.Timer(timer_id, ModeTimerX.types.HRTimer)
+        timer = self.timer_db[timer_id]
+        timer.start(time, cpu, function, expires, softexpires=softexpires)
+
+
+    def timer__hrtimer_cancel(self, time, cpu, timer_id):
+        if not self.activated():
+            return
+        if self.is_cpu_filtered(cpu):
+            return
+        if timer_id not in self.timer_db:
+            t_type = ModeTimerX.types.HRTimer
+            self.timer_db[timer_id] = ModeTimerX.Timer(timer_id, t_type)
+        timer = self.timer_db[timer_id]
+        timer.cancel(time, cpu)
+
+    def timer__hrtimer_expire_entry(self, time, cpu, timer_id, now, function):
+        if not self.activated():
+            return
+        if self.is_cpu_filtered(cpu):
+            return
+        if timer_id not in self.timer_db:
+            t_type = ModeTimerX.types.HRTimer
+            self.timer_db[timer_id] = ModeTimerX.Timer(timer_id, t_type)
+        timer = self.timer_db[timer_id]
+        timer.expire_entry(time, cpu, now, function)
+
+    def timer__hrtimer_expire_exit(self, time, cpu, timer_id):
+        if not self.activated():
+            return
+        if self.is_cpu_filtered(cpu):
+            return
+        if timer_id not in self.timer_db:
+            t_type = ModeTimerX.types.HRTimer
+            self.timer_db[timer_id] = ModeTimerX.Timer(timer_id, t_type)
+        timer = self.timer_db[timer_id]
+        timer.expire_exit(time, cpu)
+
+    def timer__timer_init(self, time, cpu, timer_id, comm, pid):
+        if not self.activated():
+            return
+        if self.is_cpu_filtered(cpu):
+            return
+        if timer_id in self.timer_db:
+            # okay, here the timer with the same id is initiailized
+            # again. Just handle this, it is just a new timer
+            self.timer_db_finished.append(self.timer_db[timer_id])
+            del self.timer_db[timer_id]
+        timer = ModeTimerX.Timer(timer_id, ModeTimerX.types.KernelTimer)
+        timer.init(time, cpu, comm, pid)
+        timer.comm = comm
+        timer.tid = pid
+        self.timer_db[timer_id] = timer
+
+    def timer__timer_start(self, time, cpu, timer_id, function, expires, now, flags):
+        if not self.activated():
+            return
+        if self.is_cpu_filtered(cpu):
+            return
+        if timer_id not in self.timer_db:
+            self.timer_db[timer_id] = ModeTimerX.Timer(timer_id, ModeTimerX.types.KernelTimer)
+        timer = self.timer_db[timer_id]
+        timer.start(time, cpu, function, expires, softexpires=None)
+
+    def timer__timer_cancel(self, time, cpu, timer_id):
+        if not self.activated():
+            return
+        if self.is_cpu_filtered(cpu):
+            return
+        if timer_id not in self.timer_db:
+            t_type = ModeTimerX.types.KernelTimer
+            self.timer_db[timer_id] = ModeTimerX.Timer(timer_id, t_type)
+        timer = self.timer_db[timer_id]
+        timer.cancel(time, cpu)
+
+    def timer__timer_expire_entry(self, time, cpu, timer_id, now, function):
+        if not self.activated():
+            return
+        if self.is_cpu_filtered(cpu):
+            return
+        if timer_id not in self.timer_db:
+            t_type = ModeTimerX.types.KernelTimer
+            self.timer_db[timer_id] = ModeTimerX.Timer(timer_id, t_type)
+        timer = self.timer_db[timer_id]
+        timer.expire_entry(time, cpu, now, function)
+
+    def timer__timer_expire_exit(self, time, cpu, timer_id):
+        if not self.activated():
+            return
+        if self.is_cpu_filtered(cpu):
+            return
+        if timer_id not in self.timer_db:
+            t_type = ModeTimerX.types.KernelTimer
+            self.timer_db[timer_id] = ModeTimerX.Timer(timer_id, t_type)
+        timer = self.timer_db[timer_id]
+        timer.expire_exit(time, cpu)
 
 class ModeWakeupsTimemap(object):
 
@@ -1341,7 +1674,6 @@ class ModeIdleGovernor(object):
         if not self.args.file_out:
             return
         fd.close()
-
 
     def get_c_state_db(self):
         c_state_db = collections.defaultdict(dict)
