@@ -114,6 +114,11 @@ def parse_args():
         type=int
     )
     parser.add_argument(
+        "--extended",
+        action="store_true",
+        help="enables additional analyzer for specific modules with more detailed information"
+    )
+    parser.add_argument(
         "-v", "--verbose",
         action="count",
         default=0,
@@ -1245,10 +1250,14 @@ class ModeTimerX(object):
             for event in timer.events:
                 if event.type != ModeTimerX.event_type.EXPIRE_ENTRY:
                     continue
-                obj["expires"].append(event.time)
+                info = f'{timer.type.name}:{event.function:x}:{event.time}'
+                obj["expires"].append(info)
         return task_db
 
+
     def show_expiration_by_task(self):
+        if not self.args.extended:
+            return
         fd_out = self.prologue("Timer Expires per Task")
         fmt = "{:>7} {:<16} "
         task_db = self.show_expiration_prep_db()
@@ -1295,7 +1304,7 @@ class ModeTimerX(object):
         if not self.activated():
             return
         self.normalize_data()
-        #self.show_expiration_by_task()
+        self.show_expiration_by_task()
         self.show_type_callback()
 
 
@@ -1338,6 +1347,7 @@ class ModeTimerX(object):
         timer = self.timer_db[timer_id]
         timer.cancel(time, cpu)
 
+
     def timer__hrtimer_expire_entry(self, time, cpu, timer_id, now, function):
         if not self.activated():
             return
@@ -1349,6 +1359,7 @@ class ModeTimerX(object):
         timer = self.timer_db[timer_id]
         timer.expire_entry(time, cpu, now, function)
 
+
     def timer__hrtimer_expire_exit(self, time, cpu, timer_id):
         if not self.activated():
             return
@@ -1359,6 +1370,7 @@ class ModeTimerX(object):
             self.timer_db[timer_id] = ModeTimerX.Timer(timer_id, t_type)
         timer = self.timer_db[timer_id]
         timer.expire_exit(time, cpu)
+
 
     def timer__timer_init(self, time, cpu, timer_id, comm, pid):
         if not self.activated():
@@ -1376,6 +1388,7 @@ class ModeTimerX(object):
         timer.tid = pid
         self.timer_db[timer_id] = timer
 
+
     def timer__timer_start(self, time, cpu, timer_id, function, expires, now, flags):
         if not self.activated():
             return
@@ -1385,6 +1398,7 @@ class ModeTimerX(object):
             self.timer_db[timer_id] = ModeTimerX.Timer(timer_id, ModeTimerX.types.KernelTimer)
         timer = self.timer_db[timer_id]
         timer.start(time, cpu, function, expires, softexpires=None)
+
 
     def timer__timer_cancel(self, time, cpu, timer_id):
         if not self.activated():
@@ -1418,6 +1432,8 @@ class ModeTimerX(object):
             self.timer_db[timer_id] = ModeTimerX.Timer(timer_id, t_type)
         timer = self.timer_db[timer_id]
         timer.expire_exit(time, cpu)
+
+
 
 class ModeWakeupsTimemap(object):
 
