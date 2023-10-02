@@ -1,0 +1,3 @@
+#!/bin/bash
+# description: analyze linux power management characteristics
+perf script -s "$PERF_EXEC_PATH"/scripts/python/power-statistics.py -- "$@"

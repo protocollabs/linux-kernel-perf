@@ -1,0 +1,2 @@
+#!/bin/bash
+perf record -e sched:sched_switch,irq:irq_handler_entry,power:cpu_frequency,power:cpu_idle,power:cpu_idle_miss,timer:hrtimer_init,timer:hrtimer_cancel,timer:timer_init,timer:timer_cancel  "$@"
