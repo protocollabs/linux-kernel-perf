@@ -79,6 +79,9 @@ struct task_desc {
 
 	int repeat;
 	int cpu_aff;
+	int sched_policy;
+	int sched_prio;
+	int nice;
 };
 
 enum sched_event_type {
@@ -514,6 +517,7 @@ static void imme_sleep_calc(struct task_desc *task, int pFile, unsigned long j,
 {
 	if (j == 0) {
 		dprintf(pFile, " sleep:0;");
+
 	} else if (j != task->nr_events - 1) {
 		if (task->atoms[j + 1]->type == SCHED_EVENT_RUN)
 			dprintf(pFile, " sleep:%ld;",
@@ -555,9 +559,10 @@ static void imme_create_txt(struct perf_sched *sched)
 				case SCHED_EVENT_SLEEP:
 					if (sched->sleep_0)
 						dprintf(pFile, " sleep:0;");
-					else
+					else{
 						imme_sleep_calc(task, pFile, j,
 								atom);
+					}
 					break;
 				case SCHED_EVENT_MIGRATION:
 					//dprintf(pFile, " migration ");
@@ -721,12 +726,19 @@ static void *thread_func(void *ctx)
 	int fd = parms->fd;
 	int repeat = this_task->repeat;
 
+	if (this_task->nice){
+		if (!nice(this_task->nice)){
+		printf("Failed to set nice level");
+		exit(EXIT_FAILURE);
+		}
+	}
+	
 	zfree(&parms);
-
 	sprintf(comm2, ":%s", this_task->comm);
 	prctl(PR_SET_NAME, comm2);
 	if (fd < 0)
 		return NULL;
+
 
 	while (!sched->thread_funcs_exit) {
 		ret = sem_post(&this_task->ready_for_work);
@@ -751,7 +763,13 @@ static void *thread_func(void *ctx)
 					perf_sched__process_event(
 						sched, this_task->atoms[i]);
 				}
-				repeat--;
+				if(repeat > 0)
+					repeat--;
+				else if (repeat < -1){
+					printf("\nMistake in pattern repeat of Task %ld\n", this_task->nr);
+					exit(EXIT_FAILURE);
+				}
+
 			}
 		}
 		cpu_usage_1 = get_cpu_usage_nsec_self(fd);
@@ -765,18 +783,31 @@ static void *thread_func(void *ctx)
 	return NULL;
 }
 
-static void set_cpu_affinity(struct task_desc *task)
+static pthread_attr_t set_cpu_affinity(struct task_desc *task, pthread_attr_t attr)
 {
 	cpu_set_t cpuset;
 	int aff;
 	CPU_ZERO(&cpuset);
 	CPU_SET(task->cpu_aff, &cpuset);
 
-	aff = pthread_setaffinity_np(task->thread, sizeof(cpu_set_t), &cpuset);
+	aff = pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpuset);
 	if (aff != 0) {
-		printf("Could not set CPU affinity.%d\n", aff);
+		printf("Could not set CPU affinity of task %ld.\n",task->nr);
 		exit(EXIT_FAILURE);
 	}
+	return attr;
+}
+
+static pthread_attr_t set_scheduler(struct task_desc *task, pthread_attr_t attr)
+{
+	struct sched_param param;
+	
+	pthread_attr_setinheritsched(&attr,PTHREAD_EXPLICIT_SCHED);
+	param.sched_priority = task->sched_prio;
+	pthread_attr_setschedpolicy(&attr, task->sched_policy);
+	pthread_attr_setschedparam(&attr, &param);
+	
+	return attr;
 }
 
 static void create_tasks(struct perf_sched *sched)
@@ -788,11 +819,6 @@ static void create_tasks(struct perf_sched *sched)
 	unsigned long i;
 	int err;
 
-	err = pthread_attr_init(&attr);
-	BUG_ON(err);
-	err = pthread_attr_setstacksize(
-		&attr, (size_t)max(16 * 1024, (int)PTHREAD_STACK_MIN));
-	BUG_ON(err);
 	mutex_lock(&sched->start_work_mutex);
 	mutex_lock(&sched->work_done_wait_mutex);
 	for (i = 0; i < sched->nr_tasks; i++) {
@@ -805,11 +831,21 @@ static void create_tasks(struct perf_sched *sched)
 		sem_init(&task->ready_for_work, 0, 0);
 		sem_init(&task->work_done_sem, 0, 0);
 		task->curr_event = 0;
-		err = pthread_create(&task->thread, &attr, thread_func, parms);
+		err = pthread_attr_init(&attr);
+		BUG_ON(err);
+		err = pthread_attr_setstacksize(
+			&attr, (size_t)max(16 * 1024, (int)PTHREAD_STACK_MIN));
+		BUG_ON(err);
 		if (task->cpu_aff)
-			set_cpu_affinity(task);
+			attr = set_cpu_affinity(task, attr);
+		if (task->sched_policy)
+			attr = set_scheduler(task, attr);
+		err = pthread_create(&task->thread, &attr, thread_func, parms);
+		BUG_ON(err);
+		err = pthread_attr_destroy(&attr);
 		BUG_ON(err);
 	}
+
 }
 
 static void wait_for_tasks(struct perf_sched *sched)
@@ -1062,7 +1098,6 @@ static struct thread_runtime *thread__init_runtime(struct thread *thread)
 static struct thread_runtime *thread__get_runtime(struct thread *thread)
 {
 	struct thread_runtime *tr;
-
 	tr = thread__priv(thread);
 	if (tr == NULL) {
 		tr = thread__init_runtime(thread);
@@ -3687,7 +3722,7 @@ static size_t check_input(char *input, const char *arg, size_t nline)
 	size_t value = 0;
 
 	if (!digits_only(input)) {
-		printf("Invalid Input for %s in line: %ld.\n", arg, nline);
+		printf("Invalid Input for %s in line: %ld. Check for ';'.\n", arg, nline);
 		exit(EXIT_FAILURE);
 	}
 
@@ -3700,25 +3735,69 @@ static size_t check_input(char *input, const char *arg, size_t nline)
 	return value;
 }
 
+static void check_policy(char *policy, int prio, struct task_desc *task, 
+										size_t nline)
+{	
+	int sched_policy = SCHED_OTHER;
+
+	if(!strcmp(policy,"FIFO"))
+		sched_policy = SCHED_FIFO;
+	
+	else if(!strcmp(policy,"RR"))
+		sched_policy = SCHED_RR;
+	
+	else if(!strcmp(policy,"OTHER"))
+		sched_policy = SCHED_OTHER;
+	
+	else if(!strcmp(policy,"BATCH"))
+		sched_policy = SCHED_BATCH;
+	
+	else if(!strcmp(policy,"IDLE"))
+		sched_policy = SCHED_IDLE;
+	else{
+		printf("%s not recognized as scheduling policy(FIFO,RR,OTHER,BATCH,IDLE). Check line: %ld.\n", policy, nline);
+		exit(EXIT_FAILURE);
+	}
+	if(prio < sched_get_priority_min(sched_policy) ||
+		 	prio > sched_get_priority_max(sched_policy)){
+			printf("Priority for %s has to be between %d and %d. Check line: %ld.\n", policy,
+			 sched_get_priority_min(sched_policy),sched_get_priority_max(sched_policy), nline);
+			exit(EXIT_FAILURE);
+		}
+			
+	task->sched_policy = sched_policy;
+	task->sched_prio = prio;
+	
+}
+
+
+static int check_nice( char *input, size_t nline)
+{	
+	int nice = 0, nice_max = 19, nice_min = -20;
+	
+	nice = strtol(input, NULL, 10);
+	if (nice < nice_min  || nice > nice_max){
+		printf("Nice level has to be between %d and %d. Check line %ld\n.",nice_max,nice_min,nline);
+		exit(EXIT_FAILURE);
+	}
+	return nice;
+}
+
 static void imme_apply_txt(struct perf_sched *sched, FILE *fd)
 {
 	char *line = NULL;
-	size_t len = 0, nline = 0, delay = 0, count = 1, pid = 0;
-	char *token, *input;
+	size_t len = 0, nline = 0, pid = 0;
+	char *token, *input, *policy = NULL;
 	char *comm, *tmpcomm;
 	char tmp[50];
 	char __maybe_unused *pattern = NULL;
-	int repeat = 1, i = 1, cpu = -1;
-
 	struct task_desc *task;
 
 	while ((getline(&line, &len, fd)) != -1) {
+		int repeat = 1, i = 1, cpu = -1, nice = 0, prio = 0;
+		size_t delay = 0, count = 1;
 		nline++;
-		count = 1;
-		cpu = -1;
-		delay = 0;
-		i = 1;
-		repeat = 1;
+
 		if (!(*line == '\n')) {
 			remove_spaces(line);
 			remove_newline(line);
@@ -3735,7 +3814,7 @@ static void imme_apply_txt(struct perf_sched *sched, FILE *fd)
 					token = strtok(NULL, "}");
 				} else if (!strcmp(token, "pattern")) {
 					pattern = get_pattern(nline);
-				} else if (!strcmp(token, "repeat")) {
+				}else if (!strcmp(token, "repeat")) {
 					input = strtok(NULL, ";");
 					repeat = strtol(input, NULL, 10);
 				} else if (!strcmp(token, "delay")) {
@@ -3746,7 +3825,16 @@ static void imme_apply_txt(struct perf_sched *sched, FILE *fd)
 					input = strtok(NULL, ";");
 					count = check_input(input, "Count",
 							    nline);
-				} else if (!strcmp(token, "cpu")) {
+				} else if (!strcmp(token, "sched-policy")) {
+					policy = strtok(NULL, ";");
+				} else if (!strcmp(token, "prio")) {
+					input = strtok(NULL, ";");
+					prio = check_input(input, "Prio",
+							    nline);
+				}else if (!strcmp(token, "nice")) {
+					input = strtok(NULL, ";");
+					nice = check_nice(input, nline);
+				}else if (!strcmp(token, "cpu")) {
 					input = strtok(NULL, ";");
 					cpu = check_input(input, "CPU", nline);
 					if (cpu > sched->max_cpu.cpu) {
@@ -3769,6 +3857,12 @@ static void imme_apply_txt(struct perf_sched *sched, FILE *fd)
 					strcat(tmpcomm, tmp);
 				}
 				task = register_pid(sched, pid, tmpcomm);
+				if (policy)
+					check_policy(policy, prio, task, nline);
+				if (nice){
+					task->nice = nice;
+					printf("%ld\n",task->nr);
+				}
 				if (delay)
 					task->atoms[0]->duration = delay;
 				if (cpu > -1)
@@ -3795,9 +3889,11 @@ static int perf_sched__replay(struct perf_sched *sched)
 	char comm[] = "Test";
 	FILE *fd;
 
-	calibrate_run_measurement_overhead(sched);
-	calibrate_sleep_measurement_overhead(sched);
-	test_calibrations(sched);
+	if (!sched->intermediate_generate){
+		calibrate_run_measurement_overhead(sched);
+		calibrate_sleep_measurement_overhead(sched);
+		test_calibrations(sched);
+	}
 	if (sched->intermediate_use) {
 		fd = fopen(sched->intermediate_use, "r");
 		if (fd == NULL) {
@@ -3977,7 +4073,7 @@ int cmd_sched(int argc, const char **argv)
 		.sort_list	      = LIST_HEAD_INIT(sched.sort_list),
 		.sort_order	      = default_sort_order,
 		.replay_repeat	  = 10,
-		.sleep_0	  = true,
+		.sleep_0	  = false,
 		.intermediate_generate = false,
 		.intermediate_use	  = NULL,
 		.profile_cpu	      = -1,
