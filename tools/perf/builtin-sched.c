@@ -748,7 +748,6 @@ static void *thread_func(void *ctx)
 		mutex_unlock(&sched->start_work_mutex);
 
 		cpu_usage_0 = get_cpu_usage_nsec_self(fd);
-		printf("0:%ld\n",cpu_usage_0);
 		this_task->curr_event = 0;
 		perf_sched__process_event(sched, this_task->atoms[0]);
 		if (!repeat) {
@@ -774,7 +773,6 @@ static void *thread_func(void *ctx)
 			}
 		}
 		cpu_usage_1 = get_cpu_usage_nsec_self(fd);
-		printf("1:%ld\n",cpu_usage_1);
 		this_task->cpu_usage = cpu_usage_1 - cpu_usage_0;
 		ret = sem_post(&this_task->work_done_sem);
 		BUG_ON(ret);
