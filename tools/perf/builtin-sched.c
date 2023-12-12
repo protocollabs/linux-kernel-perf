@@ -3861,7 +3861,6 @@ static void imme_apply_txt(struct perf_sched *sched, FILE *fd)
 					check_policy(policy, prio, task, nline);
 				if (nice){
 					task->nice = nice;
-					printf("%ld\n",task->nr);
 				}
 				if (delay)
 					task->atoms[0]->duration = delay;
