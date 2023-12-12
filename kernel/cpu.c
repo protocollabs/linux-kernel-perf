@@ -63,21 +63,21 @@
  * @done_down:	Signal completion to the issuer of the task for cpu-down
  */
 struct cpuhp_cpu_state {
-	enum cpuhp_state	state;
-	enum cpuhp_state	target;
-	enum cpuhp_state	fail;
+	enum cpuhp_state state;
+	enum cpuhp_state target;
+	enum cpuhp_state fail;
 #ifdef CONFIG_SMP
-	struct task_struct	*thread;
-	bool			should_run;
-	bool			rollback;
-	bool			single;
-	bool			bringup;
-	struct hlist_node	*node;
-	struct hlist_node	*last;
-	enum cpuhp_state	cb_state;
-	int			result;
-	struct completion	done_up;
-	struct completion	done_down;
+	struct task_struct *thread;
+	bool should_run;
+	bool rollback;
+	bool single;
+	bool bringup;
+	struct hlist_node *node;
+	struct hlist_node *last;
+	enum cpuhp_state cb_state;
+	int result;
+	struct completion done_up;
+	struct completion done_down;
 #endif
 };
 
@@ -95,7 +95,6 @@ static struct lockdep_map cpuhp_state_up_map =
 static struct lockdep_map cpuhp_state_down_map =
 	STATIC_LOCKDEP_MAP_INIT("cpuhp_state-down", &cpuhp_state_down_map);
 
-
 static inline void cpuhp_lock_acquire(bool bringup)
 {
 	lock_map_acquire(bringup ? &cpuhp_state_up_map : &cpuhp_state_down_map);
@@ -107,8 +106,12 @@ static inline void cpuhp_lock_release(bool bringup)
 }
 #else
 
-static inline void cpuhp_lock_acquire(bool bringup) { }
-static inline void cpuhp_lock_release(bool bringup) { }
+static inline void cpuhp_lock_acquire(bool bringup)
+{
+}
+static inline void cpuhp_lock_release(bool bringup)
+{
+}
 
 #endif
 
@@ -121,22 +124,20 @@ static inline void cpuhp_lock_release(bool bringup) { }
  * @multi_instance:	State has multiple instances which get added afterwards
  */
 struct cpuhp_step {
-	const char		*name;
+	const char *name;
 	union {
-		int		(*single)(unsigned int cpu);
-		int		(*multi)(unsigned int cpu,
-					 struct hlist_node *node);
+		int (*single)(unsigned int cpu);
+		int (*multi)(unsigned int cpu, struct hlist_node *node);
 	} startup;
 	union {
-		int		(*single)(unsigned int cpu);
-		int		(*multi)(unsigned int cpu,
-					 struct hlist_node *node);
+		int (*single)(unsigned int cpu);
+		int (*multi)(unsigned int cpu, struct hlist_node *node);
 	} teardown;
 	/* private: */
-	struct hlist_head	list;
+	struct hlist_head list;
 	/* public: */
-	bool			cant_stop;
-	bool			multi_instance;
+	bool cant_stop;
+	bool multi_instance;
 };
 
 static DEFINE_MUTEX(cpuhp_state_mutex);
@@ -404,13 +405,15 @@ static void lockdep_release_cpus_lock(void)
 {
 }
 
-#endif	/* CONFIG_HOTPLUG_CPU */
+#endif /* CONFIG_HOTPLUG_CPU */
 
 /*
  * Architectures that need SMT-specific errata handling during SMT hotplug
  * should override this.
  */
-void __weak arch_smt_update(void) { }
+void __weak arch_smt_update(void)
+{
+}
 
 #ifdef CONFIG_HOTPLUG_SMT
 enum cpuhp_smt_control cpu_smt_control __read_mostly = CPU_SMT_ENABLED;
@@ -467,11 +470,14 @@ static inline bool cpu_smt_allowed(unsigned int cpu)
 bool cpu_smt_possible(void)
 {
 	return cpu_smt_control != CPU_SMT_FORCE_DISABLED &&
-		cpu_smt_control != CPU_SMT_NOT_SUPPORTED;
+	       cpu_smt_control != CPU_SMT_NOT_SUPPORTED;
 }
 EXPORT_SYMBOL_GPL(cpu_smt_possible);
 #else
-static inline bool cpu_smt_allowed(unsigned int cpu) { return true; }
+static inline bool cpu_smt_allowed(unsigned int cpu)
+{
+	return true;
+}
 #endif
 
 static inline enum cpuhp_state
@@ -492,9 +498,8 @@ cpuhp_set_state(int cpu, struct cpuhp_cpu_state *st, enum cpuhp_state target)
 	return prev_state;
 }
 
-static inline void
-cpuhp_reset_state(int cpu, struct cpuhp_cpu_state *st,
-		  enum cpuhp_state prev_state)
+static inline void cpuhp_reset_state(int cpu, struct cpuhp_cpu_state *st,
+				     enum cpuhp_state prev_state)
 {
 	bool bringup = !st->bringup;
 
@@ -638,8 +643,7 @@ static int finish_cpu(unsigned int cpu)
  * st->state will be modified ahead of time, to match state_to_run, as if it
  * has already ran.
  */
-static bool cpuhp_next_state(bool bringup,
-			     enum cpuhp_state *state_to_run,
+static bool cpuhp_next_state(bool bringup, enum cpuhp_state *state_to_run,
 			     struct cpuhp_cpu_state *st,
 			     enum cpuhp_state target)
 {
@@ -663,8 +667,7 @@ static bool cpuhp_next_state(bool bringup,
 	return true;
 }
 
-static int cpuhp_invoke_callback_range(bool bringup,
-				       unsigned int cpu,
+static int cpuhp_invoke_callback_range(bool bringup, unsigned int cpu,
 				       struct cpuhp_cpu_state *st,
 				       enum cpuhp_state target)
 {
@@ -702,9 +705,8 @@ static int cpuhp_up_callbacks(unsigned int cpu, struct cpuhp_cpu_state *st,
 
 	ret = cpuhp_invoke_callback_range(true, cpu, st, target);
 	if (ret) {
-		pr_debug("CPU UP failed (%d) CPU %u state %s (%d)\n",
-			 ret, cpu, cpuhp_get_step(st->state)->name,
-			 st->state);
+		pr_debug("CPU UP failed (%d) CPU %u state %s (%d)\n", ret, cpu,
+			 cpuhp_get_step(st->state)->name, st->state);
 
 		cpuhp_reset_state(cpu, st, prev_state);
 		if (can_rollback_cpu(st))
@@ -765,7 +767,8 @@ static void cpuhp_thread_fun(unsigned int cpu)
 		state = st->cb_state;
 		st->should_run = false;
 	} else {
-		st->should_run = cpuhp_next_state(bringup, &state, st, st->target);
+		st->should_run =
+			cpuhp_next_state(bringup, &state, st, st->target);
 		if (!st->should_run)
 			goto end;
 	}
@@ -774,7 +777,8 @@ static void cpuhp_thread_fun(unsigned int cpu)
 
 	if (cpuhp_is_atomic_state(state)) {
 		local_irq_disable();
-		st->result = cpuhp_invoke_callback(cpu, state, bringup, st->node, &st->last);
+		st->result = cpuhp_invoke_callback(cpu, state, bringup,
+						   st->node, &st->last);
 		local_irq_enable();
 
 		/*
@@ -782,7 +786,8 @@ static void cpuhp_thread_fun(unsigned int cpu)
 		 */
 		WARN_ON_ONCE(st->result);
 	} else {
-		st->result = cpuhp_invoke_callback(cpu, state, bringup, st->node, &st->last);
+		st->result = cpuhp_invoke_callback(cpu, state, bringup,
+						   st->node, &st->last);
 	}
 
 	if (st->result) {
@@ -804,9 +809,8 @@ end:
 }
 
 /* Invoke a single callback on a remote cpu */
-static int
-cpuhp_invoke_ap_callback(int cpu, enum cpuhp_state state, bool bringup,
-			 struct hlist_node *node)
+static int cpuhp_invoke_ap_callback(int cpu, enum cpuhp_state state,
+				    bool bringup, struct hlist_node *node)
 {
 	struct cpuhp_cpu_state *st = per_cpu_ptr(&cpuhp_state, cpu);
 	int ret;
@@ -875,11 +879,11 @@ static int cpuhp_kick_ap_work(unsigned int cpu)
 }
 
 static struct smp_hotplug_thread cpuhp_threads = {
-	.store			= &cpuhp_state.thread,
-	.thread_should_run	= cpuhp_should_run,
-	.thread_fn		= cpuhp_thread_fun,
-	.thread_comm		= "cpuhp/%u",
-	.selfparking		= true,
+	.store = &cpuhp_state.thread,
+	.thread_should_run = cpuhp_should_run,
+	.thread_fn = cpuhp_thread_fun,
+	.thread_comm = "cpuhp/%u",
+	.selfparking = true,
 };
 
 static __init void cpuhp_init_state(void)
@@ -949,7 +953,8 @@ static void cpu_up_down_serialize_trainwrecks(bool tasks_frozen)
 
 #ifdef CONFIG_HOTPLUG_CPU
 #ifndef arch_clear_mm_cpumask_cpu
-#define arch_clear_mm_cpumask_cpu(cpu, mm) cpumask_clear_cpu(cpu, mm_cpumask(mm))
+#define arch_clear_mm_cpumask_cpu(cpu, mm) \
+	cpumask_clear_cpu(cpu, mm_cpumask(mm))
 #endif
 
 /**
@@ -1108,9 +1113,8 @@ static int cpuhp_down_callbacks(unsigned int cpu, struct cpuhp_cpu_state *st,
 
 	ret = cpuhp_invoke_callback_range(false, cpu, st, target);
 	if (ret) {
-		pr_debug("CPU DOWN failed (%d) CPU %u state %s (%d)\n",
-			 ret, cpu, cpuhp_get_step(st->state)->name,
-			 st->state);
+		pr_debug("CPU DOWN failed (%d) CPU %u state %s (%d)\n", ret,
+			 cpu, cpuhp_get_step(st->state)->name, st->state);
 
 		cpuhp_reset_state(cpu, st, prev_state);
 
@@ -1260,8 +1264,8 @@ void smp_shutdown_nonboot_cpus(unsigned int primary_cpu)
 
 		error = cpu_down_maps_locked(cpu, CPUHP_OFFLINE);
 		if (error) {
-			pr_err("Failed to offline CPU%d - error=%d",
-				cpu, error);
+			pr_err("Failed to offline CPU%d - error=%d", cpu,
+			       error);
 			break;
 		}
 	}
@@ -1282,7 +1286,7 @@ void smp_shutdown_nonboot_cpus(unsigned int primary_cpu)
 }
 
 #else
-#define takedown_cpu		NULL
+#define takedown_cpu NULL
 #endif /*CONFIG_HOTPLUG_CPU*/
 
 /**
@@ -1298,7 +1302,7 @@ void notify_cpu_starting(unsigned int cpu)
 	enum cpuhp_state target = min((int)st->target, CPUHP_AP_ONLINE);
 	int ret;
 
-	rcu_cpu_starting(cpu);	/* Enables RCU usage on this CPU. */
+	rcu_cpu_starting(cpu); /* Enables RCU usage on this CPU. */
 	cpumask_set_cpu(cpu, &cpus_booted_once_mask);
 	ret = cpuhp_invoke_callback_range(true, cpu, st, target);
 
@@ -1593,7 +1597,7 @@ out:
 
 static int __init alloc_frozen_cpus(void)
 {
-	if (!alloc_cpumask_var(&frozen_cpus, GFP_KERNEL|__GFP_ZERO))
+	if (!alloc_cpumask_var(&frozen_cpus, GFP_KERNEL | __GFP_ZERO))
 		return -ENOMEM;
 	return 0;
 }
@@ -1610,12 +1614,10 @@ core_initcall(alloc_frozen_cpus);
  * hotplug and Suspend/Hibernate call paths by hooking onto the Suspend/
  * Hibernate notifications.
  */
-static int
-cpu_hotplug_pm_callback(struct notifier_block *nb,
-			unsigned long action, void *ptr)
+static int cpu_hotplug_pm_callback(struct notifier_block *nb,
+				   unsigned long action, void *ptr)
 {
 	switch (action) {
-
 	case PM_SUSPEND_PREPARE:
 	case PM_HIBERNATION_PREPARE:
 		cpu_hotplug_disable();
@@ -1632,7 +1634,6 @@ cpu_hotplug_pm_callback(struct notifier_block *nb,
 
 	return NOTIFY_OK;
 }
-
 
 static int __init cpu_hotplug_pm_sync_init(void)
 {
@@ -1810,7 +1811,7 @@ static struct cpuhp_step cpuhp_hp_states[] = {
 		.teardown.single	= rcutree_offline_cpu,
 	},
 #endif
-	/*
+/*
 	 * The dynamically registered state space is here
 	 */
 
@@ -1888,8 +1889,8 @@ static int cpuhp_store_callbacks(enum cpuhp_state state, const char *name,
 	 * empty) state, leaving the callbacks of the to be cleared state
 	 * dangling, which causes wreckage on the next hotplug operation.
 	 */
-	if (name && (state == CPUHP_AP_ONLINE_DYN ||
-		     state == CPUHP_BP_PREPARE_DYN)) {
+	if (name &&
+	    (state == CPUHP_AP_ONLINE_DYN || state == CPUHP_BP_PREPARE_DYN)) {
 		ret = cpuhp_reserve_state(state);
 		if (ret < 0)
 			return ret;
@@ -1928,7 +1929,7 @@ static int cpuhp_issue_call(int cpu, enum cpuhp_state state, bool bringup,
 	 */
 	if (cpuhp_step_empty(bringup, sp))
 		return 0;
-	/*
+		/*
 	 * The non AP bound callbacks can fail on bringup. On teardown
 	 * e.g. module removal we crash for now.
 	 */
@@ -1969,8 +1970,7 @@ static void cpuhp_rollback_install(int failedcpu, enum cpuhp_state state,
 }
 
 int __cpuhp_state_add_instance_cpuslocked(enum cpuhp_state state,
-					  struct hlist_node *node,
-					  bool invoke)
+					  struct hlist_node *node, bool invoke)
 {
 	struct cpuhp_step *sp;
 	int cpu;
@@ -2043,8 +2043,8 @@ EXPORT_SYMBOL_GPL(__cpuhp_state_add_instance);
  *      0 for all other states
  *   On failure: proper (negative) error code
  */
-int __cpuhp_setup_state_cpuslocked(enum cpuhp_state state,
-				   const char *name, bool invoke,
+int __cpuhp_setup_state_cpuslocked(enum cpuhp_state state, const char *name,
+				   bool invoke,
 				   int (*startup)(unsigned int cpu),
 				   int (*teardown)(unsigned int cpu),
 				   bool multi_instance)
@@ -2102,11 +2102,9 @@ out:
 }
 EXPORT_SYMBOL(__cpuhp_setup_state_cpuslocked);
 
-int __cpuhp_setup_state(enum cpuhp_state state,
-			const char *name, bool invoke,
+int __cpuhp_setup_state(enum cpuhp_state state, const char *name, bool invoke,
 			int (*startup)(unsigned int cpu),
-			int (*teardown)(unsigned int cpu),
-			bool multi_instance)
+			int (*teardown)(unsigned int cpu), bool multi_instance)
 {
 	int ret;
 
@@ -2285,8 +2283,8 @@ int cpuhp_smt_enable(void)
 #endif
 
 #if defined(CONFIG_SYSFS) && defined(CONFIG_HOTPLUG_CPU)
-static ssize_t state_show(struct device *dev,
-			  struct device_attribute *attr, char *buf)
+static ssize_t state_show(struct device *dev, struct device_attribute *attr,
+			  char *buf)
 {
 	struct cpuhp_cpu_state *st = per_cpu_ptr(&cpuhp_state, dev->id);
 
@@ -2333,8 +2331,8 @@ out:
 	return ret ? ret : count;
 }
 
-static ssize_t target_show(struct device *dev,
-			   struct device_attribute *attr, char *buf)
+static ssize_t target_show(struct device *dev, struct device_attribute *attr,
+			   char *buf)
 {
 	struct cpuhp_cpu_state *st = per_cpu_ptr(&cpuhp_state, dev->id);
 
@@ -2392,8 +2390,8 @@ static ssize_t fail_store(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
-static ssize_t fail_show(struct device *dev,
-			 struct device_attribute *attr, char *buf)
+static ssize_t fail_show(struct device *dev, struct device_attribute *attr,
+			 char *buf)
 {
 	struct cpuhp_cpu_state *st = per_cpu_ptr(&cpuhp_state, dev->id);
 
@@ -2402,12 +2400,9 @@ static ssize_t fail_show(struct device *dev,
 
 static DEVICE_ATTR_RW(fail);
 
-static struct attribute *cpuhp_cpu_attrs[] = {
-	&dev_attr_state.attr,
-	&dev_attr_target.attr,
-	&dev_attr_fail.attr,
-	NULL
-};
+static struct attribute *cpuhp_cpu_attrs[] = { &dev_attr_state.attr,
+					       &dev_attr_target.attr,
+					       &dev_attr_fail.attr, NULL };
 
 static const struct attribute_group cpuhp_cpu_attr_group = {
 	.attrs = cpuhp_cpu_attrs,
@@ -2415,8 +2410,8 @@ static const struct attribute_group cpuhp_cpu_attr_group = {
 	NULL
 };
 
-static ssize_t states_show(struct device *dev,
-				 struct device_attribute *attr, char *buf)
+static ssize_t states_show(struct device *dev, struct device_attribute *attr,
+			   char *buf)
 {
 	ssize_t cur, res = 0;
 	int i;
@@ -2436,10 +2431,8 @@ static ssize_t states_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(states);
 
-static struct attribute *cpuhp_cpu_root_attrs[] = {
-	&dev_attr_states.attr,
-	NULL
-};
+static struct attribute *cpuhp_cpu_root_attrs[] = { &dev_attr_states.attr,
+						    NULL };
 
 static const struct attribute_group cpuhp_cpu_root_attr_group = {
 	.attrs = cpuhp_cpu_root_attrs,
@@ -2449,9 +2442,9 @@ static const struct attribute_group cpuhp_cpu_root_attr_group = {
 
 #ifdef CONFIG_HOTPLUG_SMT
 
-static ssize_t
-__store_smt_control(struct device *dev, struct device_attribute *attr,
-		    const char *buf, size_t count)
+static ssize_t __store_smt_control(struct device *dev,
+				   struct device_attribute *attr,
+				   const char *buf, size_t count)
 {
 	int ctrlval, ret;
 
@@ -2491,24 +2484,24 @@ __store_smt_control(struct device *dev, struct device_attribute *attr,
 }
 
 #else /* !CONFIG_HOTPLUG_SMT */
-static ssize_t
-__store_smt_control(struct device *dev, struct device_attribute *attr,
-		    const char *buf, size_t count)
+static ssize_t __store_smt_control(struct device *dev,
+				   struct device_attribute *attr,
+				   const char *buf, size_t count)
 {
 	return -ENODEV;
 }
 #endif /* CONFIG_HOTPLUG_SMT */
 
 static const char *smt_states[] = {
-	[CPU_SMT_ENABLED]		= "on",
-	[CPU_SMT_DISABLED]		= "off",
-	[CPU_SMT_FORCE_DISABLED]	= "forceoff",
-	[CPU_SMT_NOT_SUPPORTED]		= "notsupported",
-	[CPU_SMT_NOT_IMPLEMENTED]	= "notimplemented",
+	[CPU_SMT_ENABLED] = "on",
+	[CPU_SMT_DISABLED] = "off",
+	[CPU_SMT_FORCE_DISABLED] = "forceoff",
+	[CPU_SMT_NOT_SUPPORTED] = "notsupported",
+	[CPU_SMT_NOT_IMPLEMENTED] = "notimplemented",
 };
 
-static ssize_t control_show(struct device *dev,
-			    struct device_attribute *attr, char *buf)
+static ssize_t control_show(struct device *dev, struct device_attribute *attr,
+			    char *buf)
 {
 	const char *state = smt_states[cpu_smt_control];
 
@@ -2522,18 +2515,15 @@ static ssize_t control_store(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR_RW(control);
 
-static ssize_t active_show(struct device *dev,
-			   struct device_attribute *attr, char *buf)
+static ssize_t active_show(struct device *dev, struct device_attribute *attr,
+			   char *buf)
 {
 	return snprintf(buf, PAGE_SIZE - 2, "%d\n", sched_smt_active());
 }
 static DEVICE_ATTR_RO(active);
 
-static struct attribute *cpuhp_smt_attrs[] = {
-	&dev_attr_control.attr,
-	&dev_attr_active.attr,
-	NULL
-};
+static struct attribute *cpuhp_smt_attrs[] = { &dev_attr_control.attr,
+					       &dev_attr_active.attr, NULL };
 
 static const struct attribute_group cpuhp_smt_attr_group = {
 	.attrs = cpuhp_smt_attrs,
@@ -2583,18 +2573,18 @@ device_initcall(cpuhp_sysfs_init);
  */
 
 /* cpu_bit_bitmap[0] is empty - so we can back into it */
-#define MASK_DECLARE_1(x)	[x+1][0] = (1UL << (x))
-#define MASK_DECLARE_2(x)	MASK_DECLARE_1(x), MASK_DECLARE_1(x+1)
-#define MASK_DECLARE_4(x)	MASK_DECLARE_2(x), MASK_DECLARE_2(x+2)
-#define MASK_DECLARE_8(x)	MASK_DECLARE_4(x), MASK_DECLARE_4(x+4)
+#define MASK_DECLARE_1(x) [x + 1][0] = (1UL << (x))
+#define MASK_DECLARE_2(x) MASK_DECLARE_1(x), MASK_DECLARE_1(x + 1)
+#define MASK_DECLARE_4(x) MASK_DECLARE_2(x), MASK_DECLARE_2(x + 2)
+#define MASK_DECLARE_8(x) MASK_DECLARE_4(x), MASK_DECLARE_4(x + 4)
 
-const unsigned long cpu_bit_bitmap[BITS_PER_LONG+1][BITS_TO_LONGS(NR_CPUS)] = {
+const unsigned long cpu_bit_bitmap[BITS_PER_LONG + 1][BITS_TO_LONGS(NR_CPUS)] = {
 
-	MASK_DECLARE_8(0),	MASK_DECLARE_8(8),
-	MASK_DECLARE_8(16),	MASK_DECLARE_8(24),
+	MASK_DECLARE_8(0),  MASK_DECLARE_8(8),
+	MASK_DECLARE_8(16), MASK_DECLARE_8(24),
 #if BITS_PER_LONG > 32
-	MASK_DECLARE_8(32),	MASK_DECLARE_8(40),
-	MASK_DECLARE_8(48),	MASK_DECLARE_8(56),
+	MASK_DECLARE_8(32), MASK_DECLARE_8(40),
+	MASK_DECLARE_8(48), MASK_DECLARE_8(56),
 #endif
 };
 EXPORT_SYMBOL_GPL(cpu_bit_bitmap);
@@ -2603,8 +2593,7 @@ const DECLARE_BITMAP(cpu_all_bits, NR_CPUS) = CPU_BITS_ALL;
 EXPORT_SYMBOL(cpu_all_bits);
 
 #ifdef CONFIG_INIT_ALL_POSSIBLE
-struct cpumask __cpu_possible_mask __read_mostly
-	= {CPU_BITS_ALL};
+struct cpumask __cpu_possible_mask __read_mostly = { CPU_BITS_ALL };
 #else
 struct cpumask __cpu_possible_mask __read_mostly;
 #endif

@@ -82,9 +82,9 @@ static LIST_HEAD(hotplug_threads);
 static DEFINE_MUTEX(smpboot_threads_lock);
 
 struct smpboot_thread_data {
-	unsigned int			cpu;
-	unsigned int			status;
-	struct smp_hotplug_thread	*ht;
+	unsigned int cpu;
+	unsigned int status;
+	struct smp_hotplug_thread *ht;
 };
 
 enum {
@@ -166,8 +166,8 @@ static int smpboot_thread_fn(void *data)
 	}
 }
 
-static int
-__smpboot_create_thread(struct smp_hotplug_thread *ht, unsigned int cpu)
+static int __smpboot_create_thread(struct smp_hotplug_thread *ht,
+				   unsigned int cpu)
 {
 	struct task_struct *tsk = *per_cpu_ptr(ht->store, cpu);
 	struct smpboot_thread_data *td;
@@ -225,7 +225,8 @@ int smpboot_create_threads(unsigned int cpu)
 	return ret;
 }
 
-static void smpboot_unpark_thread(struct smp_hotplug_thread *ht, unsigned int cpu)
+static void smpboot_unpark_thread(struct smp_hotplug_thread *ht,
+				  unsigned int cpu)
 {
 	struct task_struct *tsk = *per_cpu_ptr(ht->store, cpu);
 
@@ -357,7 +358,6 @@ int cpu_check_up_prepare(int cpu)
 	}
 
 	switch (atomic_read(&per_cpu(cpu_hotplug_state, cpu))) {
-
 	case CPU_POST_DEAD:
 
 		/* The CPU died properly, so just start it up again. */
@@ -452,8 +452,8 @@ update_state:
 		atomic_set(&per_cpu(cpu_hotplug_state, cpu), CPU_POST_DEAD);
 	} else {
 		/* Outgoing CPU still hasn't died, set state accordingly. */
-		if (atomic_cmpxchg(&per_cpu(cpu_hotplug_state, cpu),
-				   oldstate, CPU_BROKEN) != oldstate)
+		if (atomic_cmpxchg(&per_cpu(cpu_hotplug_state, cpu), oldstate,
+				   CPU_BROKEN) != oldstate)
 			goto update_state;
 		ret = false;
 	}
@@ -481,8 +481,8 @@ bool cpu_report_death(void)
 			newstate = CPU_DEAD;
 		else
 			newstate = CPU_DEAD_FROZEN;
-	} while (atomic_cmpxchg(&per_cpu(cpu_hotplug_state, cpu),
-				oldstate, newstate) != oldstate);
+	} while (atomic_cmpxchg(&per_cpu(cpu_hotplug_state, cpu), oldstate,
+				newstate) != oldstate);
 	return newstate == CPU_DEAD;
 }
 

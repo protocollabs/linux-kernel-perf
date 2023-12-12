@@ -22,7 +22,7 @@ static DEFINE_STATIC_KEY_FALSE(stack_erasing_bypass);
 
 #ifdef CONFIG_SYSCTL
 static int stack_erasing_sysctl(struct ctl_table *table, int write,
-			void __user *buffer, size_t *lenp, loff_t *ppos)
+				void __user *buffer, size_t *lenp, loff_t *ppos)
 {
 	int ret = 0;
 	int state = !static_branch_unlikely(&stack_erasing_bypass);
@@ -41,18 +41,18 @@ static int stack_erasing_sysctl(struct ctl_table *table, int write,
 		static_branch_enable(&stack_erasing_bypass);
 
 	pr_warn("stackleak: kernel stack erasing is %s\n",
-					state ? "enabled" : "disabled");
+		state ? "enabled" : "disabled");
 	return ret;
 }
 static struct ctl_table stackleak_sysctls[] = {
 	{
-		.procname	= "stack_erasing",
-		.data		= NULL,
-		.maxlen		= sizeof(int),
-		.mode		= 0600,
-		.proc_handler	= stack_erasing_sysctl,
-		.extra1		= SYSCTL_ZERO,
-		.extra2		= SYSCTL_ONE,
+		.procname = "stack_erasing",
+		.data = NULL,
+		.maxlen = sizeof(int),
+		.mode = 0600,
+		.proc_handler = stack_erasing_sysctl,
+		.extra1 = SYSCTL_ZERO,
+		.extra2 = SYSCTL_ONE,
 	},
 	{}
 };
@@ -65,15 +65,16 @@ static int __init stackleak_sysctls_init(void)
 late_initcall(stackleak_sysctls_init);
 #endif /* CONFIG_SYSCTL */
 
-#define skip_erasing()	static_branch_unlikely(&stack_erasing_bypass)
+#define skip_erasing() static_branch_unlikely(&stack_erasing_bypass)
 #else
-#define skip_erasing()	false
+#define skip_erasing() false
 #endif /* CONFIG_STACKLEAK_RUNTIME_DISABLE */
 
 static __always_inline void __stackleak_erase(bool on_task_stack)
 {
 	const unsigned long task_stack_low = stackleak_task_low_bound(current);
-	const unsigned long task_stack_high = stackleak_task_high_bound(current);
+	const unsigned long task_stack_high =
+		stackleak_task_high_bound(current);
 	unsigned long erase_low, erase_high;
 
 	erase_low = stackleak_find_top_of_poison(task_stack_low,

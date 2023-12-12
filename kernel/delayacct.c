@@ -15,7 +15,7 @@
 #include <linux/module.h>
 
 DEFINE_STATIC_KEY_FALSE(delayacct_key);
-int delayacct_on __read_mostly;	/* Delay accounting turned on/off */
+int delayacct_on __read_mostly; /* Delay accounting turned on/off */
 struct kmem_cache *delayacct_cache;
 
 static void set_delayacct(bool enabled)
@@ -38,14 +38,15 @@ __setup("delayacct", delayacct_setup_enable);
 
 void delayacct_init(void)
 {
-	delayacct_cache = KMEM_CACHE(task_delay_info, SLAB_PANIC|SLAB_ACCOUNT);
+	delayacct_cache =
+		KMEM_CACHE(task_delay_info, SLAB_PANIC | SLAB_ACCOUNT);
 	delayacct_tsk_init(&init_task);
 	set_delayacct(delayacct_on);
 }
 
 #ifdef CONFIG_PROC_SYSCTL
 static int sysctl_delayacct(struct ctl_table *table, int write, void *buffer,
-		     size_t *lenp, loff_t *ppos)
+			    size_t *lenp, loff_t *ppos)
 {
 	int state = delayacct_on;
 	struct ctl_table t;
@@ -66,15 +67,15 @@ static int sysctl_delayacct(struct ctl_table *table, int write, void *buffer,
 
 static struct ctl_table kern_delayacct_table[] = {
 	{
-		.procname       = "task_delayacct",
-		.data           = NULL,
-		.maxlen         = sizeof(unsigned int),
-		.mode           = 0644,
-		.proc_handler   = sysctl_delayacct,
-		.extra1         = SYSCTL_ZERO,
-		.extra2         = SYSCTL_ONE,
+		.procname = "task_delayacct",
+		.data = NULL,
+		.maxlen = sizeof(unsigned int),
+		.mode = 0644,
+		.proc_handler = sysctl_delayacct,
+		.extra1 = SYSCTL_ZERO,
+		.extra2 = SYSCTL_ONE,
 	},
-	{ }
+	{}
 };
 
 static __init int kernel_delayacct_sysctls_init(void)
@@ -96,7 +97,8 @@ void __delayacct_tsk_init(struct task_struct *tsk)
  * Finish delay accounting for a statistic using its timestamps (@start),
  * accumalator (@total) and @count
  */
-static void delayacct_end(raw_spinlock_t *lock, u64 *start, u64 *total, u32 *count)
+static void delayacct_end(raw_spinlock_t *lock, u64 *start, u64 *total,
+			  u32 *count)
 {
 	s64 ns = local_clock() - *start;
 	unsigned long flags;
@@ -120,10 +122,8 @@ void __delayacct_blkio_start(void)
  */
 void __delayacct_blkio_end(struct task_struct *p)
 {
-	delayacct_end(&p->delays->lock,
-		      &p->delays->blkio_start,
-		      &p->delays->blkio_delay,
-		      &p->delays->blkio_count);
+	delayacct_end(&p->delays->lock, &p->delays->blkio_start,
+		      &p->delays->blkio_delay, &p->delays->blkio_count);
 }
 
 int delayacct_add_tsk(struct taskstats *d, struct task_struct *tsk)
@@ -158,8 +158,8 @@ int delayacct_add_tsk(struct taskstats *d, struct task_struct *tsk)
 	d->cpu_delay_total = (tmp < (s64)d->cpu_delay_total) ? 0 : tmp;
 
 	tmp = (s64)d->cpu_run_virtual_total + t3;
-	d->cpu_run_virtual_total =
-		(tmp < (s64)d->cpu_run_virtual_total) ?	0 : tmp;
+	d->cpu_run_virtual_total = (tmp < (s64)d->cpu_run_virtual_total) ? 0 :
+										 tmp;
 
 	if (!tsk->delays)
 		return 0;
@@ -208,8 +208,7 @@ void __delayacct_freepages_start(void)
 
 void __delayacct_freepages_end(void)
 {
-	delayacct_end(&current->delays->lock,
-		      &current->delays->freepages_start,
+	delayacct_end(&current->delays->lock, &current->delays->freepages_start,
 		      &current->delays->freepages_delay,
 		      &current->delays->freepages_count);
 }
@@ -221,8 +220,7 @@ void __delayacct_thrashing_start(void)
 
 void __delayacct_thrashing_end(void)
 {
-	delayacct_end(&current->delays->lock,
-		      &current->delays->thrashing_start,
+	delayacct_end(&current->delays->lock, &current->delays->thrashing_start,
 		      &current->delays->thrashing_delay,
 		      &current->delays->thrashing_count);
 }
@@ -234,8 +232,7 @@ void __delayacct_swapin_start(void)
 
 void __delayacct_swapin_end(void)
 {
-	delayacct_end(&current->delays->lock,
-		      &current->delays->swapin_start,
+	delayacct_end(&current->delays->lock, &current->delays->swapin_start,
 		      &current->delays->swapin_delay,
 		      &current->delays->swapin_count);
 }
@@ -247,8 +244,7 @@ void __delayacct_compact_start(void)
 
 void __delayacct_compact_end(void)
 {
-	delayacct_end(&current->delays->lock,
-		      &current->delays->compact_start,
+	delayacct_end(&current->delays->lock, &current->delays->compact_start,
 		      &current->delays->compact_delay,
 		      &current->delays->compact_count);
 }
@@ -260,8 +256,7 @@ void __delayacct_wpcopy_start(void)
 
 void __delayacct_wpcopy_end(void)
 {
-	delayacct_end(&current->delays->lock,
-		      &current->delays->wpcopy_start,
+	delayacct_end(&current->delays->lock, &current->delays->wpcopy_start,
 		      &current->delays->wpcopy_delay,
 		      &current->delays->wpcopy_count);
 }

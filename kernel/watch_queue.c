@@ -83,9 +83,9 @@ static void watch_queue_pipe_buf_release(struct pipe_inode_info *pipe,
 
 /* New data written to a pipe may be appended to a buffer with this type. */
 static const struct pipe_buf_operations watch_queue_pipe_buf_ops = {
-	.release	= watch_queue_pipe_buf_release,
-	.try_steal	= watch_queue_pipe_buf_try_steal,
-	.get		= generic_pipe_buf_get,
+	.release = watch_queue_pipe_buf_release,
+	.try_steal = watch_queue_pipe_buf_try_steal,
+	.get = generic_pipe_buf_get,
 };
 
 /*
@@ -141,7 +141,8 @@ static bool post_one_notification(struct watch_queue *wqueue,
 		spin_unlock_irq(&pipe->rd_wait.lock);
 		BUG();
 	}
-	wake_up_interruptible_sync_poll_locked(&pipe->rd_wait, EPOLLIN | EPOLLRDNORM);
+	wake_up_interruptible_sync_poll_locked(&pipe->rd_wait,
+					       EPOLLIN | EPOLLRDNORM);
 	done = true;
 
 out:
@@ -197,8 +198,7 @@ static bool filter_watch_notification(const struct watch_filter *wf,
  */
 void __post_watch_notification(struct watch_list *wlist,
 			       struct watch_notification *n,
-			       const struct cred *cred,
-			       u64 id)
+			       const struct cred *cred, u64 id)
 {
 	const struct watch_filter *wf;
 	struct watch_queue *wqueue;
@@ -258,7 +258,8 @@ long watch_queue_set_size(struct pipe_inode_info *pipe, unsigned int nr_notes)
 
 	nr_pages = (nr_notes + WATCH_QUEUE_NOTES_PER_PAGE - 1);
 	nr_pages /= WATCH_QUEUE_NOTES_PER_PAGE;
-	user_bufs = account_pipe_buffers(pipe->user, pipe->nr_accounted, nr_pages);
+	user_bufs =
+		account_pipe_buffers(pipe->user, pipe->nr_accounted, nr_pages);
 
 	if (nr_pages > pipe->max_usage &&
 	    (too_many_pipe_buffers_hard(user_bufs) ||
@@ -300,7 +301,7 @@ error_p:
 		__free_page(pages[i]);
 	kfree(pages);
 error:
-	(void) account_pipe_buffers(pipe->user, nr_pages, pipe->nr_accounted);
+	(void)account_pipe_buffers(pipe->user, nr_pages, pipe->nr_accounted);
 	return ret;
 }
 
@@ -329,8 +330,7 @@ long watch_queue_set_filter(struct pipe_inode_info *pipe,
 	/* Grab the user's filter specification */
 	if (copy_from_user(&filter, _filter, sizeof(filter)) != 0)
 		return -EFAULT;
-	if (filter.nr_filters == 0 ||
-	    filter.nr_filters > 16 ||
+	if (filter.nr_filters == 0 || filter.nr_filters > 16 ||
 	    filter.__reserved != 0)
 		return -EINVAL;
 
@@ -363,10 +363,10 @@ long watch_queue_set_filter(struct pipe_inode_info *pipe,
 		if (tf[i].type >= WATCH_TYPE__NR)
 			continue;
 
-		q->type			= tf[i].type;
-		q->info_filter		= tf[i].info_filter;
-		q->info_mask		= tf[i].info_mask;
-		q->subtype_filter[0]	= tf[i].subtype_filter[0];
+		q->type = tf[i].type;
+		q->info_filter = tf[i].info_filter;
+		q->info_mask = tf[i].info_mask;
+		q->subtype_filter[0] = tf[i].subtype_filter[0];
 		__set_bit(q->type, wfilter->type_filter);
 		q++;
 	}
@@ -454,7 +454,8 @@ void init_watch(struct watch *watch, struct watch_queue *wqueue)
 	rcu_assign_pointer(watch->queue, wqueue);
 }
 
-static int add_one_watch(struct watch *watch, struct watch_list *wlist, struct watch_queue *wqueue)
+static int add_one_watch(struct watch *watch, struct watch_list *wlist,
+			 struct watch_queue *wqueue)
 {
 	const struct cred *cred;
 	struct watch *w;
@@ -466,7 +467,8 @@ static int add_one_watch(struct watch *watch, struct watch_list *wlist, struct w
 	}
 
 	cred = current_cred();
-	if (atomic_inc_return(&cred->user->nr_watches) > task_rlimit(current, RLIMIT_NOFILE)) {
+	if (atomic_inc_return(&cred->user->nr_watches) >
+	    task_rlimit(current, RLIMIT_NOFILE)) {
 		atomic_dec(&cred->user->nr_watches);
 		return -EAGAIN;
 	}
@@ -607,7 +609,8 @@ void watch_queue_clear(struct watch_queue *wqueue)
 	wqueue->defunct = true;
 
 	while (!hlist_empty(&wqueue->watches)) {
-		watch = hlist_entry(wqueue->watches.first, struct watch, queue_node);
+		watch = hlist_entry(wqueue->watches.first, struct watch,
+				    queue_node);
 		hlist_del_init_rcu(&watch->queue_node);
 		/* We now own a ref on the watch. */
 		spin_unlock_bh(&wqueue->lock);

@@ -41,7 +41,7 @@ void set_kexec_sig_enforced(void)
 static int kexec_calculate_store_digests(struct kimage *image);
 
 /* Maximum size in bytes for kernel/initrd files. */
-#define KEXEC_FILE_SIZE_MAX	min_t(s64, 4LL << 30, SSIZE_MAX)
+#define KEXEC_FILE_SIZE_MAX min_t(s64, 4LL << 30, SSIZE_MAX)
 
 /*
  * Currently this is the only default function that is exported as some
@@ -51,7 +51,7 @@ static int kexec_calculate_store_digests(struct kimage *image);
 int kexec_image_probe_default(struct kimage *image, void *buf,
 			      unsigned long buf_len)
 {
-	const struct kexec_file_ops * const *fops;
+	const struct kexec_file_ops *const *fops;
 	int ret = -ENOEXEC;
 
 	for (fops = &kexec_file_loaders[0]; *fops && (*fops)->probe; ++fops) {
@@ -147,24 +147,25 @@ static int kexec_image_verify_sig(struct kimage *image, void *buf,
 				  unsigned long buf_len)
 {
 	if (!image->fops || !image->fops->verify_sig) {
-		pr_debug("kernel loader does not support signature verification.\n");
+		pr_debug(
+			"kernel loader does not support signature verification.\n");
 		return -EKEYREJECTED;
 	}
 
 	return image->fops->verify_sig(buf, buf_len);
 }
 
-static int
-kimage_validate_signature(struct kimage *image)
+static int kimage_validate_signature(struct kimage *image)
 {
 	int ret;
 
 	ret = kexec_image_verify_sig(image, image->kernel_buf,
 				     image->kernel_buf_len);
 	if (ret) {
-
 		if (sig_enforce) {
-			pr_notice("Enforced kernel signature verification failed (%d).\n", ret);
+			pr_notice(
+				"Enforced kernel signature verification failed (%d).\n",
+				ret);
 			return ret;
 		}
 
@@ -188,10 +189,11 @@ kimage_validate_signature(struct kimage *image)
  * In file mode list of segments is prepared by kernel. Copy relevant
  * data from user space, do error checking, prepare segment list
  */
-static int
-kimage_file_prepare_segments(struct kimage *image, int kernel_fd, int initrd_fd,
-			     const char __user *cmdline_ptr,
-			     unsigned long cmdline_len, unsigned flags)
+static int kimage_file_prepare_segments(struct kimage *image, int kernel_fd,
+					int initrd_fd,
+					const char __user *cmdline_ptr,
+					unsigned long cmdline_len,
+					unsigned flags)
 {
 	ssize_t ret;
 	void *ldata;
@@ -265,10 +267,10 @@ out:
 	return ret;
 }
 
-static int
-kimage_file_alloc_init(struct kimage **rimage, int kernel_fd,
-		       int initrd_fd, const char __user *cmdline_ptr,
-		       unsigned long cmdline_len, unsigned long flags)
+static int kimage_file_alloc_init(struct kimage **rimage, int kernel_fd,
+				  int initrd_fd, const char __user *cmdline_ptr,
+				  unsigned long cmdline_len,
+				  unsigned long flags)
 {
 	int ret;
 	struct kimage *image;
@@ -296,8 +298,8 @@ kimage_file_alloc_init(struct kimage **rimage, int kernel_fd,
 		goto out_free_post_load_bufs;
 
 	ret = -ENOMEM;
-	image->control_code_page = kimage_alloc_control_pages(image,
-					   get_order(KEXEC_CONTROL_PAGE_SIZE));
+	image->control_code_page = kimage_alloc_control_pages(
+		image, get_order(KEXEC_CONTROL_PAGE_SIZE));
 	if (!image->control_code_page) {
 		pr_err("Could not allocate control_code_buffer\n");
 		goto out_free_post_load_bufs;
@@ -322,9 +324,9 @@ out_free_image:
 	return ret;
 }
 
-SYSCALL_DEFINE5(kexec_file_load, int, kernel_fd, int, initrd_fd,
-		unsigned long, cmdline_len, const char __user *, cmdline_ptr,
-		unsigned long, flags)
+SYSCALL_DEFINE5(kexec_file_load, int, kernel_fd, int, initrd_fd, unsigned long,
+		cmdline_len, const char __user *, cmdline_ptr, unsigned long,
+		flags)
 {
 	int ret = 0, i;
 	struct kimage **dest_image, *image;
@@ -385,9 +387,10 @@ SYSCALL_DEFINE5(kexec_file_load, int, kernel_fd, int, initrd_fd,
 		struct kexec_segment *ksegment;
 
 		ksegment = &image->segment[i];
-		pr_debug("Loading segment %d: buf=0x%p bufsz=0x%zx mem=0x%lx memsz=0x%zx\n",
-			 i, ksegment->buf, ksegment->bufsz, ksegment->mem,
-			 ksegment->memsz);
+		pr_debug(
+			"Loading segment %d: buf=0x%p bufsz=0x%zx mem=0x%lx memsz=0x%zx\n",
+			i, ksegment->buf, ksegment->bufsz, ksegment->mem,
+			ksegment->memsz);
 
 		ret = kimage_load_segment(image, &image->segment[i]);
 		if (ret)
@@ -522,7 +525,7 @@ static int kexec_walk_memblock(struct kexec_buf *kbuf,
 	int ret = 0;
 	u64 i;
 	phys_addr_t mstart, mend;
-	struct resource res = { };
+	struct resource res = {};
 
 	if (kbuf->image->type == KEXEC_TYPE_CRASH)
 		return func(&crashk_res, kbuf);
@@ -547,8 +550,8 @@ static int kexec_walk_memblock(struct kexec_buf *kbuf,
 				break;
 		}
 	} else {
-		for_each_free_mem_range(i, NUMA_NO_NODE, MEMBLOCK_NONE,
-					&mstart, &mend, NULL) {
+		for_each_free_mem_range(i, NUMA_NO_NODE, MEMBLOCK_NONE, &mstart,
+					&mend, NULL) {
 			/*
 			 * In memblock, end points to the first byte after the
 			 * range while in kexec, end points to the last byte
@@ -585,10 +588,10 @@ static int kexec_walk_resources(struct kexec_buf *kbuf,
 				int (*func)(struct resource *, void *))
 {
 	if (kbuf->image->type == KEXEC_TYPE_CRASH)
-		return walk_iomem_res_desc(crashk_res.desc,
-					   IORESOURCE_SYSTEM_RAM | IORESOURCE_BUSY,
-					   crashk_res.start, crashk_res.end,
-					   kbuf, func);
+		return walk_iomem_res_desc(
+			crashk_res.desc,
+			IORESOURCE_SYSTEM_RAM | IORESOURCE_BUSY,
+			crashk_res.start, crashk_res.end, kbuf, func);
 	else
 		return walk_system_ram_res(0, ULONG_MAX, kbuf, func);
 }
@@ -708,7 +711,7 @@ static int kexec_calculate_store_digests(struct kimage *image)
 		goto out_free_desc;
 	}
 
-	desc->tfm   = tfm;
+	desc->tfm = tfm;
 
 	ret = crypto_shash_init(desc);
 	if (ret < 0)
@@ -764,13 +767,17 @@ static int kexec_calculate_store_digests(struct kimage *image)
 		ret = crypto_shash_final(desc, digest);
 		if (ret)
 			goto out_free_digest;
-		ret = kexec_purgatory_get_set_symbol(image, "purgatory_sha_regions",
-						     sha_regions, sha_region_sz, 0);
+		ret = kexec_purgatory_get_set_symbol(image,
+						     "purgatory_sha_regions",
+						     sha_regions, sha_region_sz,
+						     0);
 		if (ret)
 			goto out_free_digest;
 
-		ret = kexec_purgatory_get_set_symbol(image, "purgatory_sha256_digest",
-						     digest, SHA256_DIGEST_SIZE, 0);
+		ret = kexec_purgatory_get_set_symbol(image,
+						     "purgatory_sha256_digest",
+						     digest, SHA256_DIGEST_SIZE,
+						     0);
 		if (ret)
 			goto out_free_digest;
 	}
@@ -900,8 +907,8 @@ static int kexec_purgatory_setup_sechdrs(struct purgatory_info *pi,
 		offset = ALIGN(offset, align);
 		if (sechdrs[i].sh_flags & SHF_EXECINSTR &&
 		    pi->ehdr->e_entry >= sechdrs[i].sh_addr &&
-		    pi->ehdr->e_entry < (sechdrs[i].sh_addr
-					 + sechdrs[i].sh_size)) {
+		    pi->ehdr->e_entry <
+			    (sechdrs[i].sh_addr + sechdrs[i].sh_size)) {
 			kbuf->image->start -= sechdrs[i].sh_addr;
 			kbuf->image->start += kbuf->mem + offset;
 		}
@@ -933,8 +940,7 @@ static int kexec_apply_relocations(struct kimage *image)
 
 		relsec = sechdrs + i;
 
-		if (relsec->sh_type != SHT_RELA &&
-		    relsec->sh_type != SHT_REL)
+		if (relsec->sh_type != SHT_RELA && relsec->sh_type != SHT_REL)
 			continue;
 
 		/*
@@ -969,8 +975,8 @@ static int kexec_apply_relocations(struct kimage *image)
 			ret = arch_kexec_apply_relocations_add(pi, section,
 							       relsec, symtab);
 		else if (relsec->sh_type == SHT_REL)
-			ret = arch_kexec_apply_relocations(pi, section,
-							   relsec, symtab);
+			ret = arch_kexec_apply_relocations(pi, section, relsec,
+							   symtab);
 		if (ret)
 			return ret;
 	}
@@ -1054,7 +1060,7 @@ static const Elf_Sym *kexec_purgatory_find_symbol(struct purgatory_info *pi,
 		syms = (void *)ehdr + sechdrs[i].sh_offset;
 
 		/* Go through symbols for a match */
-		for (k = 0; k < sechdrs[i].sh_size/sizeof(Elf_Sym); k++) {
+		for (k = 0; k < sechdrs[i].sh_size / sizeof(Elf_Sym); k++) {
 			if (ELF_ST_BIND(syms[k].st_info) != STB_GLOBAL)
 				continue;
 
@@ -1063,8 +1069,9 @@ static const Elf_Sym *kexec_purgatory_find_symbol(struct purgatory_info *pi,
 
 			if (syms[k].st_shndx == SHN_UNDEF ||
 			    syms[k].st_shndx >= ehdr->e_shnum) {
-				pr_debug("Symbol: %s has bad section index %d.\n",
-						name, syms[k].st_shndx);
+				pr_debug(
+					"Symbol: %s has bad section index %d.\n",
+					name, syms[k].st_shndx);
 				return NULL;
 			}
 
@@ -1136,12 +1143,12 @@ int kexec_purgatory_get_set_symbol(struct kimage *image, const char *name,
 }
 #endif /* CONFIG_ARCH_HAS_KEXEC_PURGATORY */
 
-int crash_exclude_mem_range(struct crash_mem *mem,
-			    unsigned long long mstart, unsigned long long mend)
+int crash_exclude_mem_range(struct crash_mem *mem, unsigned long long mstart,
+			    unsigned long long mend)
 {
 	int i, j;
 	unsigned long long start, end, p_start, p_end;
-	struct crash_mem_range temp_range = {0, 0};
+	struct crash_mem_range temp_range = { 0, 0 };
 
 	for (i = 0; i < mem->nr_ranges; i++) {
 		start = mem->ranges[i].start;
@@ -1166,9 +1173,9 @@ int crash_exclude_mem_range(struct crash_mem *mem,
 				/* Shift rest of the ranges to left */
 				for (j = i; j < mem->nr_ranges - 1; j++) {
 					mem->ranges[j].start =
-						mem->ranges[j+1].start;
+						mem->ranges[j + 1].start;
 					mem->ranges[j].end =
-							mem->ranges[j+1].end;
+						mem->ranges[j + 1].end;
 				}
 
 				/*
@@ -1219,7 +1226,7 @@ int crash_exclude_mem_range(struct crash_mem *mem,
 }
 
 int crash_prepare_elf64_headers(struct crash_mem *mem, int need_kernel_map,
-			  void **addr, unsigned long *sz)
+				void **addr, unsigned long *sz)
 {
 	Elf64_Ehdr *ehdr;
 	Elf64_Phdr *phdr;
@@ -1284,8 +1291,8 @@ int crash_prepare_elf64_headers(struct crash_mem *mem, int need_kernel_map,
 	/* Prepare PT_LOAD type program header for kernel text region */
 	if (need_kernel_map) {
 		phdr->p_type = PT_LOAD;
-		phdr->p_flags = PF_R|PF_W|PF_X;
-		phdr->p_vaddr = (unsigned long) _text;
+		phdr->p_flags = PF_R | PF_W | PF_X;
+		phdr->p_vaddr = (unsigned long)_text;
 		phdr->p_filesz = phdr->p_memsz = _end - _text;
 		phdr->p_offset = phdr->p_paddr = __pa_symbol(_text);
 		ehdr->e_phnum++;
@@ -1298,15 +1305,16 @@ int crash_prepare_elf64_headers(struct crash_mem *mem, int need_kernel_map,
 		mend = mem->ranges[i].end;
 
 		phdr->p_type = PT_LOAD;
-		phdr->p_flags = PF_R|PF_W|PF_X;
-		phdr->p_offset  = mstart;
+		phdr->p_flags = PF_R | PF_W | PF_X;
+		phdr->p_offset = mstart;
 
 		phdr->p_paddr = mstart;
-		phdr->p_vaddr = (unsigned long) __va(mstart);
+		phdr->p_vaddr = (unsigned long)__va(mstart);
 		phdr->p_filesz = phdr->p_memsz = mend - mstart + 1;
 		phdr->p_align = 0;
 		ehdr->e_phnum++;
-		pr_debug("Crash PT_LOAD ELF header. phdr=%p vaddr=0x%llx, paddr=0x%llx, sz=0x%llx e_phnum=%d p_offset=0x%llx\n",
+		pr_debug(
+			"Crash PT_LOAD ELF header. phdr=%p vaddr=0x%llx, paddr=0x%llx, sz=0x%llx e_phnum=%d p_offset=0x%llx\n",
 			phdr, phdr->p_vaddr, phdr->p_paddr, phdr->p_filesz,
 			ehdr->e_phnum, phdr->p_offset);
 		phdr++;

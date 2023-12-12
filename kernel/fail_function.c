@@ -122,8 +122,8 @@ static int fei_retval_set(void *data, u64 val)
 	}
 
 	if (attr->kp.addr) {
-		if (adjust_error_retval((unsigned long)attr->kp.addr,
-					val) != retv)
+		if (adjust_error_retval((unsigned long)attr->kp.addr, val) !=
+		    retv)
 			err = -EINVAL;
 	}
 	if (!err)
@@ -208,10 +208,10 @@ static int fei_seq_show(struct seq_file *m, void *v)
 }
 
 static const struct seq_operations fei_seq_ops = {
-	.start	= fei_seq_start,
-	.next	= fei_seq_next,
-	.stop	= fei_seq_stop,
-	.show	= fei_seq_show,
+	.start = fei_seq_start,
+	.next = fei_seq_next,
+	.stop = fei_seq_stop,
+	.show = fei_seq_show,
 };
 
 static int fei_open(struct inode *inode, struct file *file)
@@ -314,19 +314,18 @@ out_free:
 }
 
 static const struct file_operations fei_ops = {
-	.open =		fei_open,
-	.read =		seq_read,
-	.write =	fei_write,
-	.llseek =	seq_lseek,
-	.release =	seq_release,
+	.open = fei_open,
+	.read = seq_read,
+	.write = fei_write,
+	.llseek = seq_lseek,
+	.release = seq_release,
 };
 
 static int __init fei_debugfs_init(void)
 {
 	struct dentry *dir;
 
-	dir = fault_create_debugfs_attr("fail_function", NULL,
-					&fei_fault_attr);
+	dir = fault_create_debugfs_attr("fail_function", NULL, &fei_fault_attr);
 	if (IS_ERR(dir))
 		return PTR_ERR(dir);
 

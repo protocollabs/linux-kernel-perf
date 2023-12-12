@@ -25,7 +25,6 @@
 #include <linux/kprobes.h>
 #include <trace/events/rcu.h>
 
-
 DEFINE_PER_CPU(struct context_tracking, context_tracking) = {
 #ifdef CONFIG_CONTEXT_TRACKING_IDLE
 	.dynticks_nesting = 1,
@@ -36,7 +35,7 @@ DEFINE_PER_CPU(struct context_tracking, context_tracking) = {
 EXPORT_SYMBOL_GPL(context_tracking);
 
 #ifdef CONFIG_CONTEXT_TRACKING_IDLE
-#define TPS(x)  tracepoint_string(x)
+#define TPS(x) tracepoint_string(x)
 
 /* Record the current task on dyntick-idle entry. */
 static __always_inline void rcu_dynticks_task_enter(void)
@@ -87,10 +86,11 @@ static noinstr void ct_kernel_exit_state(int offset)
 	 * critical sections, and we also must force ordering with the
 	 * next idle sojourn.
 	 */
-	rcu_dynticks_task_trace_enter();  // Before ->dynticks update!
+	rcu_dynticks_task_trace_enter(); // Before ->dynticks update!
 	seq = ct_state_inc(offset);
 	// RCU is no longer watching.  Better be in extended quiescent state!
-	WARN_ON_ONCE(IS_ENABLED(CONFIG_RCU_EQS_DEBUG) && (seq & RCU_DYNTICKS_IDX));
+	WARN_ON_ONCE(IS_ENABLED(CONFIG_RCU_EQS_DEBUG) &&
+		     (seq & RCU_DYNTICKS_IDX));
 }
 
 /*
@@ -109,8 +109,9 @@ static noinstr void ct_kernel_enter_state(int offset)
 	 */
 	seq = ct_state_inc(offset);
 	// RCU is now watching.  Better not be in an extended quiescent state!
-	rcu_dynticks_task_trace_exit();  // After ->dynticks update!
-	WARN_ON_ONCE(IS_ENABLED(CONFIG_RCU_EQS_DEBUG) && !(seq & RCU_DYNTICKS_IDX));
+	rcu_dynticks_task_trace_exit(); // After ->dynticks update!
+	WARN_ON_ONCE(IS_ENABLED(CONFIG_RCU_EQS_DEBUG) &&
+		     !(seq & RCU_DYNTICKS_IDX));
 }
 
 /*
@@ -137,8 +138,10 @@ static void noinstr ct_kernel_exit(bool user, int offset)
 
 	instrumentation_begin();
 	lockdep_assert_irqs_disabled();
-	trace_rcu_dyntick(TPS("Start"), ct_dynticks_nesting(), 0, ct_dynticks());
-	WARN_ON_ONCE(IS_ENABLED(CONFIG_RCU_EQS_DEBUG) && !user && !is_idle_task(current));
+	trace_rcu_dyntick(TPS("Start"), ct_dynticks_nesting(), 0,
+			  ct_dynticks());
+	WARN_ON_ONCE(IS_ENABLED(CONFIG_RCU_EQS_DEBUG) && !user &&
+		     !is_idle_task(current));
 	rcu_preempt_deferred_qs(current);
 
 	// instrumentation for the noinstr ct_kernel_exit_state()
@@ -183,7 +186,8 @@ static void noinstr ct_kernel_enter(bool user, int offset)
 	instrument_atomic_write(&ct->state, sizeof(ct->state));
 
 	trace_rcu_dyntick(TPS("End"), ct_dynticks_nesting(), 1, ct_dynticks());
-	WARN_ON_ONCE(IS_ENABLED(CONFIG_RCU_EQS_DEBUG) && !user && !is_idle_task(current));
+	WARN_ON_ONCE(IS_ENABLED(CONFIG_RCU_EQS_DEBUG) && !user &&
+		     !is_idle_task(current));
 	WRITE_ONCE(ct->dynticks_nesting, 1);
 	WARN_ON_ONCE(ct_dynticks_nmi_nesting());
 	WRITE_ONCE(ct->dynticks_nmi_nesting, DYNTICK_IRQ_NONIDLE);
@@ -219,8 +223,8 @@ void noinstr ct_nmi_exit(void)
 	 * leave it in non-RCU-idle state.
 	 */
 	if (ct_dynticks_nmi_nesting() != 1) {
-		trace_rcu_dyntick(TPS("--="), ct_dynticks_nmi_nesting(), ct_dynticks_nmi_nesting() - 2,
-				  ct_dynticks());
+		trace_rcu_dyntick(TPS("--="), ct_dynticks_nmi_nesting(),
+				  ct_dynticks_nmi_nesting() - 2, ct_dynticks());
 		WRITE_ONCE(ct->dynticks_nmi_nesting, /* No store tearing. */
 			   ct_dynticks_nmi_nesting() - 2);
 		instrumentation_end();
@@ -228,7 +232,8 @@ void noinstr ct_nmi_exit(void)
 	}
 
 	/* This NMI interrupted an RCU-idle CPU, restore RCU-idleness. */
-	trace_rcu_dyntick(TPS("Startirq"), ct_dynticks_nmi_nesting(), 0, ct_dynticks());
+	trace_rcu_dyntick(TPS("Startirq"), ct_dynticks_nmi_nesting(), 0,
+			  ct_dynticks());
 	WRITE_ONCE(ct->dynticks_nmi_nesting, 0); /* Avoid store tearing. */
 
 	// instrumentation for the noinstr ct_kernel_exit_state()
@@ -272,7 +277,6 @@ void noinstr ct_nmi_enter(void)
 	 * period (observation due to Andy Lutomirski).
 	 */
 	if (rcu_dynticks_curr_cpu_in_eqs()) {
-
 		if (!in_nmi())
 			rcu_dynticks_task_exit();
 
@@ -290,7 +294,7 @@ void noinstr ct_nmi_enter(void)
 	} else if (!in_nmi()) {
 		instrumentation_begin();
 		rcu_irq_enter_check_tick();
-	} else  {
+	} else {
 		instrumentation_begin();
 	}
 
@@ -423,8 +427,12 @@ void ct_irq_exit_irqson(void)
 	local_irq_restore(flags);
 }
 #else
-static __always_inline void ct_kernel_exit(bool user, int offset) { }
-static __always_inline void ct_kernel_enter(bool user, int offset) { }
+static __always_inline void ct_kernel_exit(bool user, int offset)
+{
+}
+static __always_inline void ct_kernel_enter(bool user, int offset)
+{
+}
 #endif /* #ifdef CONFIG_CONTEXT_TRACKING_IDLE */
 
 #ifdef CONFIG_CONTEXT_TRACKING_USER
@@ -443,7 +451,8 @@ static noinstr bool context_tracking_recursion_enter(void)
 	if (recursion == 1)
 		return true;
 
-	WARN_ONCE((recursion < 1), "Invalid context tracking recursion value %d\n", recursion);
+	WARN_ONCE((recursion < 1),
+		  "Invalid context tracking recursion value %d\n", recursion);
 	__this_cpu_dec(context_tracking.recursion);
 
 	return false;

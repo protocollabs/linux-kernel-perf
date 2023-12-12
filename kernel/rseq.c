@@ -18,9 +18,10 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/rseq.h>
 
-#define RSEQ_CS_NO_RESTART_FLAGS (RSEQ_CS_FLAG_NO_RESTART_ON_PREEMPT | \
-				  RSEQ_CS_FLAG_NO_RESTART_ON_SIGNAL | \
-				  RSEQ_CS_FLAG_NO_RESTART_ON_MIGRATE)
+#define RSEQ_CS_NO_RESTART_FLAGS              \
+	(RSEQ_CS_FLAG_NO_RESTART_ON_PREEMPT | \
+	 RSEQ_CS_FLAG_NO_RESTART_ON_SIGNAL |  \
+	 RSEQ_CS_FLAG_NO_RESTART_ON_MIGRATE)
 
 /*
  *
@@ -147,8 +148,7 @@ static int rseq_get_rseq_cs(struct task_struct *t, struct rseq_cs *rseq_cs)
 
 	if (rseq_cs->start_ip >= TASK_SIZE ||
 	    rseq_cs->start_ip + rseq_cs->post_commit_offset >= TASK_SIZE ||
-	    rseq_cs->abort_ip >= TASK_SIZE ||
-	    rseq_cs->version > 0)
+	    rseq_cs->abort_ip >= TASK_SIZE || rseq_cs->version > 0)
 		return -EINVAL;
 	/* Check for overflow. */
 	if (rseq_cs->start_ip + rseq_cs->post_commit_offset < rseq_cs->start_ip)
@@ -163,7 +163,8 @@ static int rseq_get_rseq_cs(struct task_struct *t, struct rseq_cs *rseq_cs)
 		return ret;
 
 	if (current->rseq_sig != sig) {
-		printk_ratelimited(KERN_WARNING
+		printk_ratelimited(
+			KERN_WARNING
 			"Possible attack attempt. Unexpected rseq signature 0x%x, expecting 0x%x (pid=%d, addr=%p).\n",
 			sig, current->rseq_sig, current->pid, usig);
 		return -EINVAL;
@@ -318,8 +319,8 @@ void rseq_syscall(struct pt_regs *regs)
 /*
  * sys_rseq - setup restartable sequences for caller thread.
  */
-SYSCALL_DEFINE4(rseq, struct rseq __user *, rseq, u32, rseq_len,
-		int, flags, u32, sig)
+SYSCALL_DEFINE4(rseq, struct rseq __user *, rseq, u32, rseq_len, int, flags,
+		u32, sig)
 {
 	int ret;
 
