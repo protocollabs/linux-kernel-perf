@@ -5,9 +5,9 @@
 #
 # Usage:
 #
-#     perf record -e sched:sched_switch,power:cpu_frequency,power:cpu_idle,irq:irq_handler_entry,timer:hrtimer_cancel,power:cpu_idle_miss -a -- sleep 10
-#     perf script report task-analyzer
-#
+#     sudo perf record -a -e sched:sched_switch,power:cpu_frequency,power:cpu_idle,irq:irq_handler_entry,timer:hrtimer_cancel,power:cpu_idle_miss -o /tmp/perf.out -- sleep 10
+#     sudo chown $USER:$USER /tmp/perf.out
+#     perf script -i /tmp/perf.out -s ~/src/code/linux/tools/perf/scripts/python/power-statistics.py -- --mode {$MODE}
 
 from __future__ import print_function
 import sys
@@ -279,9 +279,8 @@ def power__cpu_idle(event_name, context, common_cpu, common_secs, common_nsecs,
 def power__cpu_idle_miss(event_name, context, common_cpu, common_secs,
         common_nsecs, common_pid, common_comm, common_callchain, cpu_id, state,
         below, perf_sample_dict):
-    time = time_convert(perf_sample_dict["sample"]["time"])
-    mode_cluster.power__cpu_idle_miss(time, common_cpu, state, below)
-    mode_idle_governor.power__cpu_idle_miss(time, common_cpu, state, below)
+    mode_cluster.power__cpu_idle_miss(common_cpu, state, below)
+    mode_idle_governor.power__cpu_idle_miss(common_cpu, state, below)
 
 
 def timer__hrtimer_init(event_name, context, common_cpu, common_secs,
@@ -722,10 +721,10 @@ class ModeCluster(object):
         ev = EventTimer(time, cpu, hrtimer)
         self.insert(cpu, ev)
 
-    def power__cpu_idle_miss(self, time, cpu, state, below):
+    def power__cpu_idle_miss(self, cpu, state, below):
         if not self.activated():
             return
-        ev = EventIdleMiss(time, cpu, state, below)
+        ev = EventIdleMiss(cpu, state, below)
         self.insert(cpu, ev)
 
     def sched__sched_switch(self, time, cpu, next_comm, next_tid, prev_tid, perf_sample_dict):
@@ -1288,10 +1287,24 @@ class ModeIdleGovernor(object):
     class IdleEvent(object):
 
         def __init__(self, time, cpu, c_state):
-            self.time = None
-            self.cpu = None
-            self.c_state = None
+            self.time = time
+            self.cpu = cpu
+            self.c_state = c_state
+            self.time_sleep = None
+            self.miss = False
+            self.below = None
 
+        def sleep_end(self, time_end):
+            self.time_sleep = time_end - self.time
+
+        def print_event(self, fd):
+            #TODO: find real cstate name and not just sysfs name
+            print(f"{self.time} {self.cpu} {self.c_state} {self.time_sleep} {self.miss} {self.below}",
+                  file=fd)
+
+        def update_miss(self, below):
+            self.miss = True
+            self.below = below
 
 
     def __init__(self, args):
@@ -1320,24 +1333,35 @@ class ModeIdleGovernor(object):
 
 
     def parse_and_print_sys_fs_for_residency(self):
+        #TODO: remove mockup and parse sysfs
         fd = self.prologue("C-State Idle Residency", file_ext=".json")
         parsed_proc_data =  {'cpu0': {"residency": 1000}, 'cpu1': {"residency": 10000}}
         print(json.dumps(parsed_proc_data, indent=4), file=fd)
         self.epilogue(fd)
 
 
-    def do_whatver_you_want(self):
+    def print_idle_states(self):
+        if len(self.db) == 0:
+            return
         fd = self.prologue("Idle Governor Events")
+        print(" ".join(f"{var}" for var in vars(self.db[0]).keys()), file=fd)
         for event in self.db:
-            print(f"{event.time} {event.cpu}", file=fd)
+            event.print_event(fd)
         self.epilogue(fd)
+
+    def find_matching_event(self, cpu):
+        # finds the last idle event for a cpu
+        for event in self.db[::-1]:
+            if event.cpu == cpu:
+                return event
+        return None
 
 
     def finalize(self):
         if not self.activated():
             return
         self.parse_and_print_sys_fs_for_residency()
-        self.do_whatver_you_want()
+        self.print_idle_states()
 
 
     def is_cpu_filtered(self, cpu):
@@ -1346,18 +1370,27 @@ class ModeIdleGovernor(object):
         return False
 
 
-    def power__cpu_idle_miss(self, time, cpu, state, below):
+    def power__cpu_idle_miss(self, cpu, state, below):
+        #TODO: check again what state means in this trace (i think it's just entered state and
+        #can be discarded)
         if not self.activated():
             return
-        # lookup - backward search in self.db
+        event = self.find_matching_event(cpu)
+        if event is not None:
+            # occurs then there is a miss as first or second trace of a CPU
+            event.update_miss(below)
+
 
     def power__cpu_idle(self, time, cpu, state):
         if not self.activated():
             return
-        if state == POWER_WAKE_ID:
-            # transition into runnning state (-1)
-            pass
-        else:
+        if state != POWER_WAKE_ID:
             # go into idle state
             event = ModeIdleGovernor.IdleEvent(time, cpu, state)
             self.db.append(event)
+        else:
+            # transition into running state (-1)
+            event = self.find_matching_event(cpu)
+            if event is not None:
+                # can be None if a core already started in a c-state before record is called
+                event.sleep_end(time)
