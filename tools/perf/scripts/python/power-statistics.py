@@ -186,7 +186,7 @@ def _filter_non_printable(unfiltered):
 
 
 def time_convert(time_ns):
-    """ convert time to Decial and do bookkeeping """
+    """ convert time to Decimal and do bookkeeping """
     global event_time_first, event_time_last
     time = decimal.Decimal(time_ns) / decimal.Decimal(1e9)
     if not event_time_first:
@@ -1294,13 +1294,13 @@ class ModeIdleGovernor(object):
             self.miss = False
             self.below = None
 
-        def sleep_end(self, time_end):
+        def update_end(self, time_end):
             self.time_sleep = time_end - self.time
 
-        def print_event(self, fd):
+        def print_event(self, fd, fmt):
             #TODO: find real cstate name and not just sysfs name
-            print(f"{self.time} {self.cpu} {self.c_state} {self.time_sleep} {self.miss} {self.below}",
-                  file=fd)
+            event_msg = fmt.format(self.time, self.cpu, self.c_state, self.time_sleep, self.miss, self.below or "-")
+            print(event_msg, file=fd)
 
         def update_miss(self, below):
             self.miss = True
@@ -1313,7 +1313,7 @@ class ModeIdleGovernor(object):
 
 
     def activated(self):
-        return True if self.args.mode in ("all", "idle-governor") else False
+        return self.args.mode in ("all", "idle-governor")
 
 
     def prologue(self, name, file_ext=".txt"):
@@ -1341,12 +1341,13 @@ class ModeIdleGovernor(object):
 
 
     def print_idle_states(self):
+        fmt = csv_sep('{:>20}S{:>5}S{:>10}S{:>20}S{:>4}S{:>4}')
         if len(self.db) == 0:
             return
         fd = self.prologue("Idle Governor Events")
-        print(" ".join(f"{var}" for var in vars(self.db[0]).keys()), file=fd)
+        print(fmt.format("Time", "CPU", "C-State", "Sleep Duration [s]", "Miss", "Below"), file=fd)
         for event in self.db:
-            event.print_event(fd)
+            event.print_event(fd, fmt)
         self.epilogue(fd)
 
     def find_matching_event(self, cpu):
@@ -1361,6 +1362,8 @@ class ModeIdleGovernor(object):
         if not self.activated():
             return
         self.parse_and_print_sys_fs_for_residency()
+        #TODO: calc delta times of residency / sleep time
+        #is it is better to calc delta times on every event end call or here?
         self.print_idle_states()
 
 
@@ -1371,9 +1374,9 @@ class ModeIdleGovernor(object):
 
 
     def power__cpu_idle_miss(self, cpu, state, below):
-        #TODO: check again what state means in this trace (i think it's just entered state and
-        #can be discarded)
-        if not self.activated():
+        #TODO: discard state, could be used for checking though
+        #TODO: also need to remove time properly
+        if not self.activated() or self.is_cpu_filtered(cpu):
             return
         event = self.find_matching_event(cpu)
         if event is not None:
@@ -1382,7 +1385,7 @@ class ModeIdleGovernor(object):
 
 
     def power__cpu_idle(self, time, cpu, state):
-        if not self.activated():
+        if not self.activated() or self.is_cpu_filtered(cpu):
             return
         if state != POWER_WAKE_ID:
             # go into idle state
@@ -1391,6 +1394,7 @@ class ModeIdleGovernor(object):
         else:
             # transition into running state (-1)
             event = self.find_matching_event(cpu)
-            if event is not None:
+            if event is None:
                 # can be None if a core already started in a c-state before record is called
-                event.sleep_end(time)
+                return
+            event.update_end(time)
