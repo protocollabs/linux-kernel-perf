@@ -24,7 +24,6 @@ import signal
 import types
 import math
 import json
-import collections
 
 
 sys.path.append(
@@ -1333,11 +1332,20 @@ class ModeIdleGovernor(object):
 
 
     def parse_and_print_sys_fs_for_residency(self):
-        #TODO: remove mockup and parse sysfs
+        #TODO: add cpu and state names to dictionary
         fd = self.prologue("C-State Idle Residency", file_ext=".json")
-        parsed_proc_data =  {'cpu0': {"residency": 1000}, 'cpu1': {"residency": 10000}}
-        print(json.dumps(parsed_proc_data, indent=4), file=fd)
+        cpu_c_state_pairs = {(event.cpu, event.c_state) for event in self.db}
+        c_state_db = collections.defaultdict(dict)
+        for cpu, c_state in cpu_c_state_pairs:
+            c_state_db[cpu][c_state] = {}
+            c_state_path = f"/sys/devices/system/cpu/cpu{cpu}/cpuidle/state{c_state}/"
+            with open(c_state_path + "name", "r") as name_file, open(c_state_path + "residency", "r") as residency_file:
+                c_state_db[cpu][c_state]["name"] = name_file.read().strip()
+                c_state_db[cpu][c_state]["residency"] = residency_file.read().strip()
+        c_state_db = dict(c_state_db)
+        print(json.dumps(c_state_db, indent=4), file=fd)
         self.epilogue(fd)
+        return c_state_db
 
 
     def print_idle_states(self):
@@ -1361,7 +1369,7 @@ class ModeIdleGovernor(object):
     def finalize(self):
         if not self.activated():
             return
-        self.parse_and_print_sys_fs_for_residency()
+        c_state_db = self.parse_and_print_sys_fs_for_residency()
         #TODO: calc delta times of residency / sleep time
         #is it is better to calc delta times on every event end call or here?
         self.print_idle_states()
@@ -1379,9 +1387,10 @@ class ModeIdleGovernor(object):
         if not self.activated() or self.is_cpu_filtered(cpu):
             return
         event = self.find_matching_event(cpu)
-        if event is not None:
+        if event is None:
             # occurs then there is a miss as first or second trace of a CPU
-            event.update_miss(below)
+            return
+        event.update_miss(below)
 
 
     def power__cpu_idle(self, time, cpu, state):
