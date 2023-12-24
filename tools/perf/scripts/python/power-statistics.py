@@ -1337,11 +1337,11 @@ class ModeIdleGovernor(object):
         cpu_c_state_pairs = {(event.cpu, event.c_state) for event in self.db}
         c_state_db = collections.defaultdict(dict)
         for cpu, c_state in cpu_c_state_pairs:
-            c_state_db[cpu][c_state] = {}
+            c_state_db[f"CPU{cpu}"][f"state{c_state}"] = {}
             c_state_path = f"/sys/devices/system/cpu/cpu{cpu}/cpuidle/state{c_state}/"
             with open(c_state_path + "name", "r") as name_file, open(c_state_path + "residency", "r") as residency_file:
-                c_state_db[cpu][c_state]["name"] = name_file.read().strip()
-                c_state_db[cpu][c_state]["residency"] = residency_file.read().strip()
+                c_state_db[f"CPU{cpu}"][f"state{c_state}"]["name"] = name_file.read().strip()
+                c_state_db[f"CPU{cpu}"][f"state{c_state}"]["residency"] = residency_file.read().strip()
         c_state_db = dict(c_state_db)
         print(json.dumps(c_state_db, indent=4), file=fd)
         self.epilogue(fd)
