@@ -1290,6 +1290,7 @@ class ModeIdleGovernor(object):
             self.cpu = cpu
             self.c_state = c_state
             self.time_sleep = None
+            self.time_delta = None
             self.miss = False
             self.below = None
 
@@ -1298,12 +1299,16 @@ class ModeIdleGovernor(object):
 
         def print_event(self, fd, fmt):
             #TODO: find real cstate name and not just sysfs name
-            event_msg = fmt.format(self.time, self.cpu, self.c_state, self.time_sleep, self.miss, self.below or "-")
+            event_msg = fmt.format(self.time, self.cpu, self.c_state, self.time_sleep, self.time_delta, self.miss, self.below or "-")
             print(event_msg, file=fd)
 
         def update_miss(self, below):
             self.miss = True
             self.below = below
+
+        def update_time_delta(self, c_state_db):
+            residency = decimal.Decimal(c_state_db[f"CPU{self.cpu}"][f"state{self.c_state}"]["residency"])
+            self.time_delta = int(self.time_sleep*decimal.Decimal(1e9) - residency*decimal.Decimal(1e3))
 
 
     def __init__(self, args):
@@ -1332,7 +1337,7 @@ class ModeIdleGovernor(object):
 
 
     def parse_and_print_sys_fs_for_residency(self):
-        #TODO: add cpu and state names to dictionary
+        #TODO: parse all states not just the ones used
         fd = self.prologue("C-State Idle Residency", file_ext=".json")
         cpu_c_state_pairs = {(event.cpu, event.c_state) for event in self.db}
         c_state_db = collections.defaultdict(dict)
@@ -1349,11 +1354,11 @@ class ModeIdleGovernor(object):
 
 
     def print_idle_states(self):
-        fmt = csv_sep('{:>20}S{:>5}S{:>10}S{:>20}S{:>4}S{:>4}')
+        fmt = csv_sep('{:>20}S{:>5}S{:>10}S{:>20}S{:>20}S{:>4}S{:>4}')
         if len(self.db) == 0:
             return
         fd = self.prologue("Idle Governor Events")
-        print(fmt.format("Time", "CPU", "C-State", "Sleep Duration [s]", "Miss", "Below"), file=fd)
+        print(fmt.format("Time", "CPU", "C-State", "Sleep Duration [s]", "Delta Time [ns]", "Miss", "Below"), file=fd)
         for event in self.db:
             event.print_event(fd, fmt)
         self.epilogue(fd)
@@ -1371,7 +1376,9 @@ class ModeIdleGovernor(object):
             return
         c_state_db = self.parse_and_print_sys_fs_for_residency()
         #TODO: calc delta times of residency / sleep time
-        #is it is better to calc delta times on every event end call or here?
+        #probably better to move this to each event, such that there is no need for another iteration
+        for event in self.db:
+            event.update_time_delta(c_state_db)
         self.print_idle_states()
 
 
