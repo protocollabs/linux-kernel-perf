@@ -24,6 +24,7 @@ import signal
 import types
 import math
 import json
+import re
 
 
 sys.path.append(
@@ -1337,9 +1338,21 @@ class ModeIdleGovernor(object):
 
 
     def parse_and_print_sys_fs_for_residency(self):
-        #TODO: parse all states not just the ones used
         fd = self.prologue("C-State Idle Residency", file_ext=".json")
-        cpu_c_state_pairs = {(event.cpu, event.c_state) for event in self.db}
+        c_state_db = collections.defaultdict(dict)
+        sys_path = "/sys/devices/system/cpu/"
+        cpu_dirs = [d for d in os.listdir(sys_path) if re.match(r"^cpu\d+$", d)]
+
+        for cpu_dir in sorted(cpu_dirs, key=lambda x: int(x[3:])):
+            for state in sorted(os.listdir(sys_path + cpu_dir + "/cpuidle/")):
+                c_state_db[cpu_dir.upper()][state] = {}
+                c_state_path = sys_path + cpu_dir + "/cpuidle/" + state + "/"
+                with open(c_state_path + "name", "r") as name_file, open(c_state_path + "residency", "r") as residency_file:
+                    c_state_db[cpu_dir.upper()][state]["name"] = name_file.read().strip()
+                    c_state_db[cpu_dir.upper()][state]["residency"] = residency_file.read().strip()
+        c_state_db = dict(c_state_db)
+        """
+        # implementation for only used states
         c_state_db = collections.defaultdict(dict)
         for cpu, c_state in cpu_c_state_pairs:
             c_state_db[f"CPU{cpu}"][f"state{c_state}"] = {}
@@ -1348,6 +1361,7 @@ class ModeIdleGovernor(object):
                 c_state_db[f"CPU{cpu}"][f"state{c_state}"]["name"] = name_file.read().strip()
                 c_state_db[f"CPU{cpu}"][f"state{c_state}"]["residency"] = residency_file.read().strip()
         c_state_db = dict(c_state_db)
+        """
         print(json.dumps(c_state_db, indent=4), file=fd)
         self.epilogue(fd)
         return c_state_db
