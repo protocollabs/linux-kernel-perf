@@ -279,8 +279,9 @@ def power__cpu_idle(event_name, context, common_cpu, common_secs, common_nsecs,
 def power__cpu_idle_miss(event_name, context, common_cpu, common_secs,
         common_nsecs, common_pid, common_comm, common_callchain, cpu_id, state,
         below, perf_sample_dict):
-    mode_cluster.power__cpu_idle_miss(common_cpu, state, below)
-    mode_idle_governor.power__cpu_idle_miss(common_cpu, state, below)
+    time = time_convert(perf_sample_dict["sample"]["time"])
+    mode_cluster.power__cpu_idle_miss(time, common_cpu, state, below)
+    mode_idle_governor.power__cpu_idle_miss(time, common_cpu, state, below)
 
 
 def timer__hrtimer_init(event_name, context, common_cpu, common_secs,
@@ -721,10 +722,10 @@ class ModeCluster(object):
         ev = EventTimer(time, cpu, hrtimer)
         self.insert(cpu, ev)
 
-    def power__cpu_idle_miss(self, cpu, state, below):
+    def power__cpu_idle_miss(self, time, cpu, state, below):
         if not self.activated():
             return
-        ev = EventIdleMiss(cpu, state, below)
+        ev = EventIdleMiss(time, cpu, state, below)
         self.insert(cpu, ev)
 
     def sched__sched_switch(self, time, cpu, next_comm, next_tid, prev_tid, perf_sample_dict):
@@ -1290,6 +1291,7 @@ class ModeIdleGovernor(object):
             self.time = time
             self.cpu = cpu
             self.c_state = c_state
+            self.c_state_name = None
             self.time_sleep = None
             self.time_delta = None
             self.miss = False
@@ -1299,17 +1301,17 @@ class ModeIdleGovernor(object):
             self.time_sleep = time_end - self.time
 
         def print_event(self, fd, fmt):
-            #TODO: find real cstate name and not just sysfs name
-            event_msg = fmt.format(self.time, self.cpu, self.c_state, self.time_sleep, self.time_delta, self.miss, self.below or "-")
+            event_msg = fmt.format(self.time, self.cpu, self.c_state_name, self.time_sleep, self.time_delta, self.miss, (self.below if self.below is not None else "-"))
             print(event_msg, file=fd)
 
         def update_miss(self, below):
             self.miss = True
             self.below = below
 
-        def update_time_delta(self, c_state_db):
+        def update_sysfs(self, c_state_db):
             residency = decimal.Decimal(c_state_db[f"CPU{self.cpu}"][f"state{self.c_state}"]["residency"])
             self.time_delta = int(self.time_sleep*decimal.Decimal(1e9) - residency*decimal.Decimal(1e3))
+            self.c_state_name = c_state_db[f"CPU{self.cpu}"][f"state{self.c_state}"]["name"]
 
 
     def __init__(self, args):
@@ -1337,8 +1339,7 @@ class ModeIdleGovernor(object):
         fd.close()
 
 
-    def parse_and_print_sys_fs_for_residency(self):
-        fd = self.prologue("C-State Idle Residency", file_ext=".json")
+    def get_c_state_db(self):
         c_state_db = collections.defaultdict(dict)
         sys_path = "/sys/devices/system/cpu/"
         cpu_dirs = [d for d in os.listdir(sys_path) if re.match(r"^cpu\d+$", d)]
@@ -1362,8 +1363,6 @@ class ModeIdleGovernor(object):
                 c_state_db[f"CPU{cpu}"][f"state{c_state}"]["residency"] = residency_file.read().strip()
         c_state_db = dict(c_state_db)
         """
-        print(json.dumps(c_state_db, indent=4), file=fd)
-        self.epilogue(fd)
         return c_state_db
 
 
@@ -1371,11 +1370,11 @@ class ModeIdleGovernor(object):
         fmt = csv_sep('{:>20}S{:>5}S{:>10}S{:>20}S{:>20}S{:>4}S{:>4}')
         if len(self.db) == 0:
             return
-        fd = self.prologue("Idle Governor Events")
-        print(fmt.format("Time", "CPU", "C-State", "Sleep Duration [s]", "Delta Time [ns]", "Miss", "Below"), file=fd)
+        fd_out = self.prologue("Idle Governor Events")
+        print(fmt.format("Time", "CPU", "C-State", "Sleep [s]", "Delta Time [ns]", "Miss", "Below"), file=fd_out)
         for event in self.db:
-            event.print_event(fd, fmt)
-        self.epilogue(fd)
+            event.print_event(fd_out, fmt)
+        self.epilogue(fd_out)
 
     def find_matching_event(self, cpu):
         # finds the last idle event for a cpu
@@ -1388,11 +1387,13 @@ class ModeIdleGovernor(object):
     def finalize(self):
         if not self.activated():
             return
-        c_state_db = self.parse_and_print_sys_fs_for_residency()
-        #TODO: calc delta times of residency / sleep time
-        #probably better to move this to each event, such that there is no need for another iteration
+        c_state_db = self.get_c_state_db()
+        fd_out = self.prologue("C-State Idle Residency", file_ext=".json")
+        print(json.dumps(c_state_db, indent=4), file=fd_out)
+        self.epilogue(fd_out)
+        # probably better to move delta calc to each event, such that there is no need for another iteration
         for event in self.db:
-            event.update_time_delta(c_state_db)
+            event.update_sysfs(c_state_db)
         self.print_idle_states()
 
 
@@ -1402,14 +1403,12 @@ class ModeIdleGovernor(object):
         return False
 
 
-    def power__cpu_idle_miss(self, cpu, state, below):
-        #TODO: discard state, could be used for checking though
-        #TODO: also need to remove time properly
+    def power__cpu_idle_miss(self, time, cpu, state, below):
         if not self.activated() or self.is_cpu_filtered(cpu):
             return
         event = self.find_matching_event(cpu)
         if event is None:
-            # occurs then there is a miss as first or second trace of a CPU
+            # can only occur then there is a miss as first or second trace of a CPU
             return
         event.update_miss(below)
 
