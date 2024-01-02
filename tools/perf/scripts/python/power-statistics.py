@@ -1301,7 +1301,9 @@ class ModeIdleGovernor(object):
             self.time_sleep = time_end - self.time
 
         def print_event(self, fd, fmt):
-            event_msg = fmt.format(self.time, self.cpu, self.c_state_name, self.time_sleep, self.time_delta, self.miss, (self.below if self.below is not None else "-"))
+            event_msg = fmt.format((self.time if self.time is not None else "-"), self.cpu,
+                                   self.c_state_name, self.time_sleep, self.time_delta, self.miss,
+                                   (self.below if self.below is not None else "-"))
             print(event_msg, file=fd)
 
         def update_miss(self, below):
@@ -1310,7 +1312,9 @@ class ModeIdleGovernor(object):
 
         def update_sysfs(self, c_state_db):
             residency = decimal.Decimal(c_state_db[f"CPU{self.cpu}"][f"state{self.c_state}"]["residency"])
-            self.time_delta = int(self.time_sleep*decimal.Decimal(1e9) - residency*decimal.Decimal(1e3))
+            # time_sleep can be unset if the c-state was not exited before record finished
+            if self.time_sleep is not None:
+                self.time_delta = int(self.time_sleep*decimal.Decimal(1e9) - residency*decimal.Decimal(1e3))
             self.c_state_name = c_state_db[f"CPU{self.cpu}"][f"state{self.c_state}"]["name"]
 
 
