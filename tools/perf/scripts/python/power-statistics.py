@@ -638,8 +638,8 @@ class ModeFrequency(object):
 
     def show(self):
         fmt = csv_sep('{:>20}S{:>3}S{:>15}S{:>11}S{:>11}S{:>16}S{:>11}') 
-        print(fmt.format("Time", "CPU", "Frequency [MHz]", "PID",
-                         "TID", "Comm", "Runtime [ms]"))
+        print(csv_clean(fmt.format("Time", "CPU", "Frequency [MHz]", "PID",
+                         "TID", "Comm", "Runtime [ms]")))
         for event in self.journal_iter(cpu=self.args.cpu): 
             if not isinstance(event, EventTask):
                 continue
@@ -1304,7 +1304,7 @@ class ModeIdleGovernor(object):
             event_msg = fmt.format((self.time if self.time is not None else "-"), self.cpu,
                                    self.c_state_name, self.time_sleep, self.time_delta, self.miss,
                                    (self.below if self.below is not None else "-"))
-            print(event_msg, file=fd)
+            print(csv_clean(event_msg), file=fd)
 
         def update_miss(self, below):
             self.miss = True
@@ -1356,29 +1356,15 @@ class ModeIdleGovernor(object):
                     c_state_db[cpu_dir.upper()][state]["name"] = name_file.read().strip()
                     c_state_db[cpu_dir.upper()][state]["residency"] = residency_file.read().strip()
         c_state_db = dict(c_state_db)
-        """
-        # implementation for only used states
-        c_state_db = collections.defaultdict(dict)
-        for cpu, c_state in cpu_c_state_pairs:
-            c_state_db[f"CPU{cpu}"][f"state{c_state}"] = {}
-            c_state_path = f"/sys/devices/system/cpu/cpu{cpu}/cpuidle/state{c_state}/"
-            with open(c_state_path + "name", "r") as name_file, open(c_state_path + "residency", "r") as residency_file:
-                c_state_db[f"CPU{cpu}"][f"state{c_state}"]["name"] = name_file.read().strip()
-                c_state_db[f"CPU{cpu}"][f"state{c_state}"]["residency"] = residency_file.read().strip()
-        c_state_db = dict(c_state_db)
-        """
         return c_state_db
 
 
     def print_idle_states(self):
-        if args.csv:
-            fmt = csv_sep('{},{},{},{},{},{},{}')
-        else:
-            fmt = csv_sep('{:>20}S{:>5}S{:>10}S{:>20}S{:>20}S{:>4}S{:>4}')
+        fd_out = self.prologue("Idle Governor Events")
         if len(self.db) == 0:
             return
-        fd_out = self.prologue("Idle Governor Events")
-        print(fmt.format("Time", "CPU", "C-State", "Sleep [s]", "Delta Time [ns]", "Miss", "Below"), file=fd_out)
+        fmt = csv_sep('{:>20}S{:>5}S{:>10}S{:>20}S{:>20}S{:>4}S{:>4}')
+        print(csv_clean(fmt.format("Time", "CPU", "C-State", "Sleep [s]", "Delta Time [ns]", "Miss", "Below")), file=fd_out)
         for event in self.db:
             event.print_event(fd_out, fmt)
         self.epilogue(fd_out)
