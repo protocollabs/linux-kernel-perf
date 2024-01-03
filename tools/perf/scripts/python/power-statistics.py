@@ -1371,7 +1371,10 @@ class ModeIdleGovernor(object):
 
 
     def print_idle_states(self):
-        fmt = csv_sep('{:>20}S{:>5}S{:>10}S{:>20}S{:>20}S{:>4}S{:>4}')
+        if args.csv:
+            fmt = csv_sep('{},{},{},{},{},{},{}')
+        else:
+            fmt = csv_sep('{:>20}S{:>5}S{:>10}S{:>20}S{:>20}S{:>4}S{:>4}')
         if len(self.db) == 0:
             return
         fd_out = self.prologue("Idle Governor Events")
