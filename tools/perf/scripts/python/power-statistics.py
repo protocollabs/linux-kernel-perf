@@ -637,10 +637,10 @@ class ModeFrequency(object):
         self.frequency_cpu[cpu_id] = state // 1000
 
     def show(self):
-        fmt = csv_sep('{:>20}S{:>3}S{:>15}S{:>11}S{:>11}S{:>16}S{:>11}') 
-        print(csv_clean(fmt.format("Time", "CPU", "Frequency [MHz]", "PID",
-                         "TID", "Comm", "Runtime [ms]")))
-        for event in self.journal_iter(cpu=self.args.cpu): 
+        fmt = csv_sep('{:>20}S{:>3}S{:>15}S{:>11}S{:>11}S{:>16}S{:>11}')
+        print(fmt.format("Time", "CPU", "Frequency [MHz]", "PID",
+                         "TID", "Comm", "Runtime [ms]"))
+        for event in self.journal_iter(cpu=self.args.cpu):
             if not isinstance(event, EventTask):
                 continue
             time_ns = decimal_capped(event.time, unit="ns")
