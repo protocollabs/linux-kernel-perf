@@ -1298,24 +1298,24 @@ class ModeIdleGovernor(object):
             self.below = None
 
         def update_end(self, time_end):
-            self.time_sleep = time_end - self.time
+            self.time_sleep = int((time_end - self.time) * decimal.Decimal(1e9))
 
         def print_event(self, fd, fmt):
-            event_msg = fmt.format((self.time if self.time is not None else "-"), self.cpu,
+            event_msg = fmt.format(("{:.9f}".format(self.time) if self.time is not None else "-"), self.cpu,
                                    self.c_state_name, self.time_sleep, self.time_delta, self.miss,
                                    (self.below if self.below is not None else "-"))
-            print(csv_clean(event_msg), file=fd)
+            print(event_msg, file=fd)
 
         def update_miss(self, below):
             self.miss = True
             self.below = below
 
         def update_sysfs(self, c_state_db):
-            residency = decimal.Decimal(c_state_db[f"CPU{self.cpu}"][f"state{self.c_state}"]["residency"])
+            residency = int(c_state_db[f"cpu{self.cpu}"][f"state{self.c_state}"]["residency"])
             # time_sleep can be unset if the c-state was not exited before record finished
             if self.time_sleep is not None:
-                self.time_delta = int(self.time_sleep*decimal.Decimal(1e9) - residency*decimal.Decimal(1e3))
-            self.c_state_name = c_state_db[f"CPU{self.cpu}"][f"state{self.c_state}"]["name"]
+                self.time_delta = self.time_sleep - (residency * 1000)
+            self.c_state_name = c_state_db[f"cpu{self.cpu}"][f"state{self.c_state}"]["name"]
 
 
     def __init__(self, args):
@@ -1350,11 +1350,11 @@ class ModeIdleGovernor(object):
 
         for cpu_dir in sorted(cpu_dirs, key=lambda x: int(x[3:])):
             for state in sorted(os.listdir(sys_path + cpu_dir + "/cpuidle/")):
-                c_state_db[cpu_dir.upper()][state] = {}
+                c_state_db[cpu_dir][state] = {}
                 c_state_path = sys_path + cpu_dir + "/cpuidle/" + state + "/"
                 with open(c_state_path + "name", "r") as name_file, open(c_state_path + "residency", "r") as residency_file:
-                    c_state_db[cpu_dir.upper()][state]["name"] = name_file.read().strip()
-                    c_state_db[cpu_dir.upper()][state]["residency"] = residency_file.read().strip()
+                    c_state_db[cpu_dir][state]["name"] = name_file.read().strip()
+                    c_state_db[cpu_dir][state]["residency"] = residency_file.read().strip()
         c_state_db = dict(c_state_db)
         return c_state_db
 
@@ -1363,8 +1363,8 @@ class ModeIdleGovernor(object):
         fd_out = self.prologue("Idle Governor Events")
         if len(self.db) == 0:
             return
-        fmt = csv_sep('{:>20}S{:>5}S{:>10}S{:>20}S{:>20}S{:>4}S{:>4}')
-        print(csv_clean(fmt.format("Time", "CPU", "C-State", "Sleep [s]", "Delta Time [ns]", "Miss", "Below")), file=fd_out)
+        fmt = '{:>20} {:>5} {:>10} {:>14} {:>12} {:>6} {:>6}'
+        print(fmt.format("Time-Start", "CPU", "C-State", "Sleep[ns]", "Delta[ns]", "Miss", "Below"), file=fd_out)
         for event in self.db:
             event.print_event(fd_out, fmt)
         self.epilogue(fd_out)
