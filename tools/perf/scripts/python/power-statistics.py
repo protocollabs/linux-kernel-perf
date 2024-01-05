@@ -5,9 +5,9 @@
 #
 # Usage:
 #
-#     perf record -e sched:sched_switch,power:cpu_frequency,power:cpu_idle,irq:irq_handler_entry,timer:hrtimer_cancel,power:cpu_idle_miss -a -- sleep 10
-#     perf script report task-analyzer
-#
+#     sudo perf record -a -e sched:sched_switch,power:cpu_frequency,power:cpu_idle,irq:irq_handler_entry,timer:hrtimer_cancel,power:cpu_idle_miss -o /tmp/perf.out -- sleep 10
+#     sudo chown $USER:$USER /tmp/perf.out
+#     perf script -i /tmp/perf.out -s ~/src/code/linux/tools/perf/scripts/python/power-statistics.py -- --mode {$MODE}
 
 from __future__ import print_function
 import sys
@@ -24,7 +24,7 @@ import signal
 import types
 import math
 import json
-import collections
+import re
 
 
 sys.path.append(
@@ -186,7 +186,7 @@ def _filter_non_printable(unfiltered):
 
 
 def time_convert(time_ns):
-    """ convert time to Decial and do bookkeeping """
+    """ convert time to Decimal and do bookkeeping """
     global event_time_first, event_time_last
     time = decimal.Decimal(time_ns) / decimal.Decimal(1e9)
     if not event_time_first:
@@ -637,10 +637,10 @@ class ModeFrequency(object):
         self.frequency_cpu[cpu_id] = state // 1000
 
     def show(self):
-        fmt = csv_sep('{:>20}S{:>3}S{:>15}S{:>11}S{:>11}S{:>16}S{:>11}') 
+        fmt = csv_sep('{:>20}S{:>3}S{:>15}S{:>11}S{:>11}S{:>16}S{:>11}')
         print(fmt.format("Time", "CPU", "Frequency [MHz]", "PID",
                          "TID", "Comm", "Runtime [ms]"))
-        for event in self.journal_iter(cpu=self.args.cpu): 
+        for event in self.journal_iter(cpu=self.args.cpu):
             if not isinstance(event, EventTask):
                 continue
             time_ns = decimal_capped(event.time, unit="ns")
@@ -1288,10 +1288,34 @@ class ModeIdleGovernor(object):
     class IdleEvent(object):
 
         def __init__(self, time, cpu, c_state):
-            self.time = None
-            self.cpu = None
-            self.c_state = None
+            self.time = time
+            self.cpu = cpu
+            self.c_state = c_state
+            self.c_state_name = None
+            self.time_sleep = None
+            self.time_delta = None
+            self.miss = False
+            self.below = None
 
+        def update_end(self, time_end):
+            self.time_sleep = int((time_end - self.time) * decimal.Decimal(1e9))
+
+        def print_event(self, fd, fmt):
+            event_msg = fmt.format(("{:.9f}".format(self.time) if self.time is not None else "-"), self.cpu,
+                                   self.c_state_name, self.time_sleep, self.time_delta, self.miss,
+                                   (self.below if self.below is not None else "-"))
+            print(event_msg, file=fd)
+
+        def update_miss(self, below):
+            self.miss = True
+            self.below = below
+
+        def update_sysfs(self, c_state_db):
+            residency = int(c_state_db[f"cpu{self.cpu}"][f"state{self.c_state}"]["residency"])
+            # time_sleep can be unset if the c-state was not exited before record finished
+            if self.time_sleep is not None:
+                self.time_delta = self.time_sleep - (residency * 1000)
+            self.c_state_name = c_state_db[f"cpu{self.cpu}"][f"state{self.c_state}"]["name"]
 
 
     def __init__(self, args):
@@ -1300,7 +1324,7 @@ class ModeIdleGovernor(object):
 
 
     def activated(self):
-        return True if self.args.mode in ("all", "idle-governor") else False
+        return self.args.mode in ("all", "idle-governor")
 
 
     def prologue(self, name, file_ext=".txt"):
@@ -1319,25 +1343,51 @@ class ModeIdleGovernor(object):
         fd.close()
 
 
-    def parse_and_print_sys_fs_for_residency(self):
-        fd = self.prologue("C-State Idle Residency", file_ext=".json")
-        parsed_proc_data =  {'cpu0': {"residency": 1000}, 'cpu1': {"residency": 10000}}
-        print(json.dumps(parsed_proc_data, indent=4), file=fd)
-        self.epilogue(fd)
+    def get_c_state_db(self):
+        c_state_db = collections.defaultdict(dict)
+        sys_path = "/sys/devices/system/cpu/"
+        cpu_dirs = [d for d in os.listdir(sys_path) if re.match(r"^cpu\d+$", d)]
+
+        for cpu_dir in sorted(cpu_dirs, key=lambda x: int(x[3:])):
+            for state in sorted(os.listdir(sys_path + cpu_dir + "/cpuidle/")):
+                c_state_db[cpu_dir][state] = {}
+                c_state_path = sys_path + cpu_dir + "/cpuidle/" + state + "/"
+                with open(c_state_path + "name", "r") as name_file, open(c_state_path + "residency", "r") as residency_file:
+                    c_state_db[cpu_dir][state]["name"] = name_file.read().strip()
+                    c_state_db[cpu_dir][state]["residency"] = residency_file.read().strip()
+        c_state_db = dict(c_state_db)
+        return c_state_db
 
 
-    def do_whatver_you_want(self):
-        fd = self.prologue("Idle Governor Events")
+    def print_idle_states(self):
+        fd_out = self.prologue("Idle Governor Events")
+        if len(self.db) == 0:
+            return
+        fmt = '{:>20} {:>5} {:>10} {:>14} {:>12} {:>6} {:>6}'
+        print(fmt.format("Time-Start", "CPU", "C-State", "Sleep[ns]", "Delta[ns]", "Miss", "Below"), file=fd_out)
         for event in self.db:
-            print(f"{event.time} {event.cpu}", file=fd)
-        self.epilogue(fd)
+            event.print_event(fd_out, fmt)
+        self.epilogue(fd_out)
+
+    def find_matching_event(self, cpu):
+        # finds the last idle event for a cpu
+        for event in self.db[::-1]:
+            if event.cpu == cpu:
+                return event
+        return None
 
 
     def finalize(self):
         if not self.activated():
             return
-        self.parse_and_print_sys_fs_for_residency()
-        self.do_whatver_you_want()
+        c_state_db = self.get_c_state_db()
+        fd_out = self.prologue("C-State Idle Residency", file_ext=".json")
+        print(json.dumps(c_state_db, indent=4), file=fd_out)
+        self.epilogue(fd_out)
+        # probably better to move delta calc to each event, such that there is no need for another iteration
+        for event in self.db:
+            event.update_sysfs(c_state_db)
+        self.print_idle_states()
 
 
     def is_cpu_filtered(self, cpu):
@@ -1347,17 +1397,26 @@ class ModeIdleGovernor(object):
 
 
     def power__cpu_idle_miss(self, time, cpu, state, below):
-        if not self.activated():
+        if not self.activated() or self.is_cpu_filtered(cpu):
             return
-        # lookup - backward search in self.db
+        event = self.find_matching_event(cpu)
+        if event is None:
+            # can only occur then there is a miss as first or second trace of a CPU
+            return
+        event.update_miss(below)
+
 
     def power__cpu_idle(self, time, cpu, state):
-        if not self.activated():
+        if not self.activated() or self.is_cpu_filtered(cpu):
             return
-        if state == POWER_WAKE_ID:
-            # transition into runnning state (-1)
-            pass
-        else:
+        if state != POWER_WAKE_ID:
             # go into idle state
             event = ModeIdleGovernor.IdleEvent(time, cpu, state)
             self.db.append(event)
+        else:
+            # transition into running state (-1)
+            event = self.find_matching_event(cpu)
+            if event is None:
+                # can be None if a core already started in a c-state before record is called
+                return
+            event.update_end(time)
