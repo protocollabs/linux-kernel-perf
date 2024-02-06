@@ -1301,6 +1301,9 @@ class ModeIdleGovernor(object):
             self.time_sleep = int((time_end - self.time) * decimal.Decimal(1e9))
 
         def print_event(self, fd, fmt):
+            # Can happen if the Core is still in an idle state, as described in  update_sysfs()
+            if self.time_sleep is None:
+                return
             event_msg = fmt.format(("{:.9f}".format(self.time) if self.time is not None else "-"), self.cpu,
                                    self.c_state_name, self.time_sleep, self.time_delta, self.miss,
                                    (self.below if self.below is not None else "-"))
