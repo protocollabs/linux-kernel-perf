@@ -1301,9 +1301,6 @@ class ModeIdleGovernor(object):
             self.time_sleep = int((time_end - self.time) * decimal.Decimal(1e9))
 
         def print_event(self, fd, fmt):
-            # Can happen if the Core is still in an idle state, as described in  update_sysfs()
-            if self.time_sleep is None:
-                return
             event_msg = fmt.format(("{:.9f}".format(self.time) if self.time is not None else "-"), self.cpu,
                                    self.c_state_name, self.time_sleep, self.time_delta, self.miss,
                                    (self.below if self.below is not None else "-"))
@@ -1315,9 +1312,7 @@ class ModeIdleGovernor(object):
 
         def update_sysfs(self, c_state_db):
             residency = int(c_state_db[f"cpu{self.cpu}"][f"state{self.c_state}"]["residency"])
-            # time_sleep can be unset if the c-state was not exited before record finished
-            if self.time_sleep is not None:
-                self.time_delta = self.time_sleep - (residency * 1000)
+            self.time_delta = self.time_sleep - (residency * 1000)
             self.c_state_name = c_state_db[f"cpu{self.cpu}"][f"state{self.c_state}"]["name"]
 
 
@@ -1387,6 +1382,9 @@ class ModeIdleGovernor(object):
         fd_out = self.prologue("C-State Idle Residency", file_ext=".json")
         print(json.dumps(c_state_db, indent=4), file=fd_out)
         self.epilogue(fd_out)
+        # time_sleep can be unset if the c-state was not exited before record finished
+        # this means we are likely to lose a long duration idle event
+        self.db = [event for event in self.db if event.time_sleep is not None]
         # probably better to move delta calc to each event, such that there is no need for another iteration
         for event in self.db:
             event.update_sysfs(c_state_db)
